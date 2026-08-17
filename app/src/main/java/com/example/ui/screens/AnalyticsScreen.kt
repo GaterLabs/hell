@@ -46,6 +46,8 @@ fun AnalyticsScreen(
     val dateFilter by viewModel.analyticsDateFilter.collectAsState()
     val customDate by viewModel.customAnalyticsDate.collectAsState()
     val summary by viewModel.analyticsSummary.collectAsState()
+    val writeOffs by viewModel.debtWriteOffs.collectAsState(initial = emptyList())
+    val inventoryBuckets by viewModel.inventoryBucketSummaries.collectAsState()
 
     val locale = if (language.code == "id") Locale("in", "ID") else Locale.ENGLISH
     val dateFormatter = remember { SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()) }
@@ -268,6 +270,27 @@ fun AnalyticsScreen(
                         subtitle = "Margin: ${String.format("%.1f", summary.profitMarginPercent)}%",
                         icon = Icons.Default.TrendingUp,
                         accentColor = profitClr,
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+            }
+
+            item {
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    StatCard(
+                        title = "Aset Pribadi Repack",
+                        value = "${inventoryBuckets.firstOrNull { it.bucket == "PRIVATE_READY" }?.totalPcs ?: 0} pcs",
+                        subtitle = "Stok siap jual",
+                        icon = Icons.Default.Diamond,
+                        accentColor = AppThemeColors.profitColor,
+                        modifier = Modifier.weight(1f)
+                    )
+                    StatCard(
+                        title = "Kerugian Write-off",
+                        value = SalesViewModel.formatRupiah(writeOffs.sumOf { it.amount }),
+                        subtitle = "${writeOffs.size} kejadian",
+                        icon = Icons.Default.WarningAmber,
+                        accentColor = AppThemeColors.debtColor,
                         modifier = Modifier.weight(1f)
                     )
                 }

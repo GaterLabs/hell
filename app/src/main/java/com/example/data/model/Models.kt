@@ -59,7 +59,10 @@ data class StoreEntity(
     val lastVisitedDate: Long? = null,
     val isVisitedToday: Boolean = false,
     val latitude: Double? = null,
-    val longitude: Double? = null
+    val longitude: Double? = null,
+    val status: String = "ACTIVE",
+    val creditLimit: Double = 500_000.0,
+    val debtSince: Long? = null
 )
 
 @Entity(
@@ -116,6 +119,107 @@ data class VanLoadEntity(
     val updatedAt: Long = System.currentTimeMillis()
 )
 
+/** Signed stock movements keep ownership separate from the operational load table. */
+@Entity(
+    tableName = "inventory_movements",
+    foreignKeys = [
+        ForeignKey(
+            entity = ProductEntity::class,
+            parentColumns = ["id"],
+            childColumns = ["productId"],
+            onDelete = ForeignKey.CASCADE
+        )
+    ],
+    indices = [Index("productId"), Index("bucket"), Index("createdAt")]
+)
+data class InventoryMovementEntity(
+    @PrimaryKey(autoGenerate = true)
+    val id: Long = 0,
+    val productId: Long,
+    val bucket: String,
+    val quantityPcs: Int,
+    val movementType: String,
+    val referenceId: Long? = null,
+    val unitCostPerPc: Double = 0.0,
+    val notes: String = "",
+    val createdAt: Long = System.currentTimeMillis()
+)
+
+@Entity(
+    tableName = "daily_closings",
+    indices = [Index("closedAt")]
+)
+data class DailyClosingEntity(
+    @PrimaryKey
+    val dateString: String,
+    val totalLoadedBoxes: Int,
+    val freshRemainingBoxes: Int,
+    val factoryDue: Double,
+    val cashCollected: Double,
+    val shortage: Double,
+    val closedAt: Long = System.currentTimeMillis(),
+    val notes: String = ""
+)
+
+@Entity(
+    tableName = "debt_write_offs",
+    foreignKeys = [
+        ForeignKey(
+            entity = StoreEntity::class,
+            parentColumns = ["id"],
+            childColumns = ["storeId"],
+            onDelete = ForeignKey.RESTRICT
+        )
+    ],
+    indices = [Index("storeId"), Index("createdAt")]
+)
+data class DebtWriteOffEntity(
+    @PrimaryKey(autoGenerate = true)
+    val id: Long = 0,
+    val storeId: Long,
+    val amount: Double,
+    val reason: String,
+    val createdAt: Long = System.currentTimeMillis()
+)
+
+@Entity(tableName = "business_partners", indices = [Index("kind"), Index("active")])
+data class BusinessPartnerEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val kind: String,
+    val name: String,
+    val contactName: String = "",
+    val phone: String = "",
+    val address: String = "",
+    val paymentTerms: String = "",
+    val bankAccount: String = "",
+    val notes: String = "",
+    val active: Boolean = true,
+    val createdAt: Long = System.currentTimeMillis()
+)
+
+@Entity(
+    tableName = "store_price_overrides",
+    primaryKeys = ["storeId", "productId"],
+    indices = [Index("storeId"), Index("productId")]
+)
+data class StorePriceOverrideEntity(
+    val storeId: Long,
+    val productId: Long,
+    val pricePerPc: Double,
+    val validFrom: String,
+    val validUntil: String? = null,
+    val updatedAt: Long = System.currentTimeMillis()
+)
+
+@Entity(tableName = "audit_events", indices = [Index("createdAt"), Index("eventType")])
+data class AuditEventEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val eventType: String,
+    val referenceId: Long? = null,
+    val description: String,
+    val createdAt: Long = System.currentTimeMillis()
+)
+
 @Entity(
     tableName = "visit_transactions",
     foreignKeys = [
@@ -144,7 +248,11 @@ data class VisitTransactionEntity(
     val totalProfit: Double,       // Keuntungan salesman (Laba bersih)
     val totalItemsSold: Int,       // Total pack/pcs laku
     val paymentStatus: String = "LUNAS", // "LUNAS", "BON/TEMPO", "SEBAGIAN"
-    val notes: String = ""
+    val notes: String = "",
+    val visitLatitude: Double? = null,
+    val visitLongitude: Double? = null,
+    val gpsAccuracyMeters: Float? = null,
+    val gpsDistanceMeters: Float? = null
 )
 
 @Entity(
@@ -177,6 +285,7 @@ data class TransactionItemEntity(
     val remainingStock: Int,       // Sisa di warung saat dicek (e.g. 3)
     val soldQuantity: Int,         // Terjual / Laku (e.g. 7)
     val newDroppedQuantity: Int,   // Tambahan stok baru yang dititipkan (e.g. 10)
+    val sourceBucket: String = "FRESH_FACTORY",
     val costPrice: Double,         // Harga modal saat transaksi (e.g. 11,000)
     val sellPrice: Double,         // Harga jual ke warung saat transaksi (e.g. 15,000)
     val subtotalDue: Double,       // soldQuantity * sellPrice (e.g. 105,000)

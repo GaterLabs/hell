@@ -49,12 +49,19 @@ fun SettingsScreen(
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
     val themeMode by viewModel.themeMode.collectAsState()
+    val pinEnabled by viewModel.pinEnabled.collectAsState()
+    val gpsThreshold by viewModel.gpsAccuracyThreshold.collectAsState()
+    val printerAddress by viewModel.printerAddress.collectAsState()
+    val auditEvents by viewModel.recentAuditEvents.collectAsState(initial = emptyList())
 
     var showResetVisitsDialog by remember { mutableStateOf(false) }
     var showImportConfirmDialog by remember { mutableStateOf(false) }
     var selectedImportUri by remember { mutableStateOf<Uri?>(null) }
     var restoreResultMessage by remember { mutableStateOf<String?>(null) }
     var isProcessing by remember { mutableStateOf(false) }
+    var pinText by remember { mutableStateOf("") }
+    var gpsText by remember(gpsThreshold) { mutableStateOf(gpsThreshold.toString()) }
+    var printerText by remember(printerAddress) { mutableStateOf(printerAddress) }
 
     // Launcher for selecting a JSON file to import
     val importFilePickerLauncher = rememberLauncherForActivityResult(
@@ -598,6 +605,59 @@ fun SettingsScreen(
                             lineHeight = 20.sp,
                             color = MaterialTheme.colorScheme.onSurface
                         )
+                    }
+                }
+            }
+
+            // Version info
+            item {
+                Card(shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth()) {
+                    Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Text("Keamanan & Perangkat", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                        Text(if (pinEnabled) "PIN aplikasi aktif" else "PIN aplikasi belum aktif", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        OutlinedTextField(
+                            value = pinText,
+                            onValueChange = { pinText = it.filter(Char::isDigit).take(6) },
+                            label = { Text("PIN baru (4-6 digit)") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Button(onClick = { viewModel.setSecurityPin(pinText); pinText = "" }, enabled = pinText.length >= 4) { Text(if (pinEnabled) "Ubah PIN" else "Aktifkan PIN") }
+                            if (pinEnabled) OutlinedButton(onClick = { viewModel.setSecurityPin("") }) { Text("Nonaktifkan") }
+                        }
+                        OutlinedTextField(
+                            value = gpsText,
+                            onValueChange = { gpsText = it.filter(Char::isDigit).take(3) },
+                            label = { Text("Batas akurasi GPS (meter)") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        OutlinedButton(onClick = { viewModel.setGpsAccuracyThreshold(gpsText.toIntOrNull() ?: gpsThreshold) }) { Text("Simpan batas GPS") }
+                        OutlinedTextField(
+                            value = printerText,
+                            onValueChange = { printerText = it },
+                            label = { Text("Alamat MAC printer Bluetooth") },
+                            placeholder = { Text("AA:BB:CC:DD:EE:FF") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        OutlinedButton(onClick = { viewModel.setPrinterAddress(printerText) }) { Text("Simpan printer") }
+                    }
+                }
+            }
+
+            item {
+                Card(shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth()) {
+                    Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text("Audit Trail Terbaru", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                        if (auditEvents.isEmpty()) {
+                            Text("Belum ada aktivitas tercatat", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        } else {
+                            auditEvents.take(8).forEach { event ->
+                                Text("${event.eventType}: ${event.description}", style = MaterialTheme.typography.bodySmall)
+                            }
+                        }
                     }
                 }
             }

@@ -1,5 +1,8 @@
 package com.example.ui.screens
 
+import android.Manifest
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -41,6 +44,7 @@ import com.example.ui.theme.DebtBadge
 import com.example.ui.theme.ProfitBadge
 import com.example.ui.theme.SuccessGreen
 import com.example.ui.util.LocalAppStrings
+import com.example.ui.util.LocationHelper
 import com.example.ui.viewmodel.SalesViewModel
 
 data class ItemReconciliationState(
@@ -53,7 +57,8 @@ data class ItemReconciliationState(
     var previousStockPcs: Int,   // Total Pcs titipan sebelumnya
     var remainingPcs: Int = 0,   // Sisa fisik di warung dalam Pcs (default 0)
     var newDroppedPacks: Int = 0,// Tambahan titipan baru (dalam satuan Pack - default 0)
-    var newDroppedPcs: Int = 0   // Tambahan titipan baru (eceran Pcs - default 0)
+    var newDroppedPcs: Int = 0,  // Tambahan titipan baru (eceran Pcs - default 0)
+    val sourceBucket: String = "FRESH_FACTORY"
 ) {
     val safePackSize: Int get() = if (packSize > 0) packSize else 1
     val pricePerPc: Double get() = sellPrice / safePackSize
@@ -94,6 +99,7 @@ fun VisitReconciliationSheet(
     val focusManager = LocalFocusManager.current
     val profitClr = AppThemeColors.profitColor
     val debtClr = AppThemeColors.debtColor
+    val context = androidx.compose.ui.platform.LocalContext.current
 
     // Reconciliation rows state (Dual Pack & Pcs aware)
     val itemsState = remember(initialConsignments) {
@@ -138,6 +144,18 @@ fun VisitReconciliationSheet(
     var previousDebtPaid by remember { mutableStateOf(0.0) }
     var customAmountPaidText by remember { mutableStateOf("") }
     var isCustomPayment by remember { mutableStateOf(false) }
+    var isSubmitting by remember { mutableStateOf(false) }
+    var gpsError by remember { mutableStateOf<String?>(null) }
+    var shouldSubmitAfterPermission by remember { mutableStateOf(false) }
+
+    val locationPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { permissions ->
+        val granted = permissions[Manifest.permission.ACCESS_FINE_LOCATION] == true ||
+                permissions[Manifest.permission.ACCESS_COARSE_LOCATION] == true
+        if (granted) shouldSubmitAfterPermission = true
+        else gpsError = "Izin lokasi wajib untuk menyelesaikan kunjungan"
+    }
 
     // Computations
     val totalSoldDue = itemsState.sumOf { it.subtotalDue }
@@ -158,6 +176,54 @@ fun VisitReconciliationSheet(
     }
 
     val isInitialDrop = itemsState.all { it.previousStockPcs == 0 } && store.outstandingDebt == 0.0
+
+    LaunchedEffect(shouldSubmitAfterPermission) {
+        if (!shouldSubmitAfterPermission) return@LaunchedEffect
+        shouldSubmitAfterPermission = false
+        isSubmitting = true
+        gpsError = null
+        try {
+            val location = LocationHelper.getCurrentLocation(context)
+            if (location == null) {
+                gpsError = "Lokasi GPS belum tersedia. Pastikan GPS aktif."
+                return@LaunchedEffect
+            }
+            val itemsInput = itemsState.map {
+                ReconciliationItemInput(
+                    productId = it.productId,
+                    productName = it.productName,
+                    unitName = it.unitName,
+                    packSize = it.safePackSize,
+                    previousStock = it.previousStockPcs,
+                    remainingStock = it.remainingPcs,
+                    soldQty = it.soldPcs,
+                    newDroppedQty = it.totalNewDroppedPcs,
+                    costPrice = it.costPerPc,
+                    sellPrice = it.pricePerPc,
+                    sourceBucket = it.sourceBucket
+                )
+            }
+            viewModel.executeReconciliation(
+                store = store,
+                route = route,
+                items = itemsInput,
+                amountPaid = effectiveAmountPaid,
+                previousDebtPaid = previousDebtPaid,
+                paymentStatus = paymentStatus,
+                notes = notesText,
+                visitLocation = location,
+                onSuccess = onSuccessTransaction,
+                onError = { message ->
+                    gpsError = message
+                    isSubmitting = false
+                }
+            )
+        } catch (error: Exception) {
+            gpsError = error.message ?: "Validasi GPS gagal"
+        } finally {
+            isSubmitting = false
+        }
+    }
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -389,6 +455,20 @@ fun VisitReconciliationSheet(
                             Spacer(modifier = Modifier.height(10.dp))
                             HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.15f))
                             Spacer(modifier = Modifier.height(10.dp))
+
+                            Text("Sumber stok titip baru", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                FilterChip(
+                                    selected = item.sourceBucket == "FRESH_FACTORY",
+                                    onClick = { itemsState[index] = item.copy(sourceBucket = "FRESH_FACTORY") },
+                                    label = { Text("Fresh pabrik") }
+                                )
+                                FilterChip(
+                                    selected = item.sourceBucket == "PRIVATE_READY",
+                                    onClick = { itemsState[index] = item.copy(sourceBucket = "PRIVATE_READY") },
+                                    label = { Text("Pribadi repack") }
+                                )
+                            }
 
                             // 1. RECONCILIATION SUMMARY: STOK LALU & LAKU TERJUAL (2-Column Cards)
                             Row(
@@ -832,39 +912,38 @@ fun VisitReconciliationSheet(
                         )
                     }
 
-                    Spacer(modifier = Modifier.height(12.dp))
+            Spacer(modifier = Modifier.height(12.dp))
+
+            gpsError?.let { message ->
+                Surface(
+                    color = MaterialTheme.colorScheme.errorContainer,
+                    shape = RoundedCornerShape(10.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(modifier = Modifier.padding(10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Icon(Icons.Default.LocationOff, contentDescription = null, tint = MaterialTheme.colorScheme.error)
+                        Text(message, color = MaterialTheme.colorScheme.onErrorContainer, style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+            }
 
                     // Action Button: Selesai & Buat Struk
                     Button(
                         onClick = {
-                            val itemsInput = itemsState.map {
-                                ReconciliationItemInput(
-                                    productId = it.productId,
-                                    productName = it.productName,
-                                    unitName = it.unitName,
-                                    packSize = it.safePackSize,
-                                    previousStock = it.previousStockPcs,
-                                    remainingStock = it.remainingPcs,
-                                    soldQty = it.soldPcs,
-                                    newDroppedQty = it.totalNewDroppedPcs,
-                                    costPrice = it.costPerPc,
-                                    sellPrice = it.pricePerPc
+                            gpsError = null
+                            if (LocationHelper.hasLocationPermission(context)) {
+                                shouldSubmitAfterPermission = true
+                            } else {
+                                locationPermissionLauncher.launch(
+                                    arrayOf(
+                                        Manifest.permission.ACCESS_FINE_LOCATION,
+                                        Manifest.permission.ACCESS_COARSE_LOCATION
+                                    )
                                 )
                             }
-
-                            viewModel.executeReconciliation(
-                                store = store,
-                                route = route,
-                                items = itemsInput,
-                                amountPaid = effectiveAmountPaid,
-                                previousDebtPaid = previousDebtPaid,
-                                paymentStatus = paymentStatus,
-                                notes = notesText,
-                                onSuccess = { transaction ->
-                                    onSuccessTransaction(transaction)
-                                }
-                            )
                         },
+                        enabled = !isSubmitting,
                         modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(12.dp)
                     ) {

@@ -1,5 +1,6 @@
 package com.example.data.repository
 
+import androidx.room.withTransaction
 import com.example.data.local.*
 import com.example.data.model.*
 import kotlinx.coroutines.Dispatchers
@@ -8,6 +9,14 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.util.*
+import android.location.Location
+
+data class ClosingLoadInput(
+    val productId: Long,
+    val loadedBoxes: Int,
+    val freshRemainingBoxes: Int,
+    val costPerBox: Double
+)
 
 class SalesRepository(private val database: AppDatabase) {
 
@@ -16,6 +25,12 @@ class SalesRepository(private val database: AppDatabase) {
     private val storeDao = database.storeDao()
     private val consignmentDao = database.consignmentDao()
     private val vanLoadDao = database.vanLoadDao()
+    private val inventoryMovementDao = database.inventoryMovementDao()
+    private val dailyClosingDao = database.dailyClosingDao()
+    private val debtWriteOffDao = database.debtWriteOffDao()
+    private val businessPartnerDao = database.businessPartnerDao()
+    private val storePriceOverrideDao = database.storePriceOverrideDao()
+    private val auditEventDao = database.auditEventDao()
     private val vanReturnDao = database.vanReturnDao()
     private val transactionDao = database.transactionDao()
     private val gpsTrackDao = database.gpsTrackDao()
@@ -62,19 +77,69 @@ class SalesRepository(private val database: AppDatabase) {
 
     suspend fun saveStore(store: StoreEntity): Long = withContext(Dispatchers.IO) {
         if (store.id == 0L) {
-            storeDao.insertStore(store)
+            storeDao.insertStore(store).also { auditEventDao.insert(AuditEventEntity(eventType = "STORE_CREATED", referenceId = it, description = "Warung dibuat: ${store.name}")) }
         } else {
             storeDao.updateStore(store)
+            auditEventDao.insert(AuditEventEntity(eventType = "STORE_UPDATED", referenceId = store.id, description = "Warung diperbarui: ${store.name}"))
             store.id
         }
     }
 
     suspend fun deleteStore(store: StoreEntity) = withContext(Dispatchers.IO) {
         storeDao.deleteStore(store)
+        auditEventDao.insert(AuditEventEntity(eventType = "STORE_DELETED", referenceId = store.id, description = "Warung dihapus: ${store.name}"))
     }
 
     suspend fun resetDailyVisitStatus() = withContext(Dispatchers.IO) {
         storeDao.resetDailyVisitStatus()
+    }
+
+    val debtWriteOffs: Flow<List<DebtWriteOffEntity>> = debtWriteOffDao.observeAll()
+
+    suspend fun writeOffStoreDebt(store: StoreEntity, reason: String) = withContext(Dispatchers.IO) {
+        require(store.outstandingDebt > 0) { "Warung tidak memiliki piutang untuk dihapus buku" }
+        database.withTransaction {
+            debtWriteOffDao.insert(
+                DebtWriteOffEntity(
+                    storeId = store.id,
+                    amount = store.outstandingDebt,
+                    reason = reason.trim().ifBlank { "Write-off piutang" }
+                )
+            )
+            storeDao.updateStoreDebt(store.id, 0.0, null)
+            auditEventDao.insert(
+                AuditEventEntity(
+                    eventType = "DEBT_WRITE_OFF",
+                    referenceId = store.id,
+                    description = "Piutang ${store.name} dihapus buku: ${store.outstandingDebt}"
+                )
+            )
+        }
+    }
+
+    val businessPartners: Flow<List<BusinessPartnerEntity>> = businessPartnerDao.observeAll()
+    val priceOverrides: Flow<List<StorePriceOverrideEntity>> = storePriceOverrideDao.observeAll()
+
+    suspend fun saveBusinessPartner(entity: BusinessPartnerEntity) = withContext(Dispatchers.IO) {
+        if (entity.id == 0L) businessPartnerDao.insert(entity) else businessPartnerDao.update(entity).let { entity.id }
+    }
+
+    suspend fun deleteBusinessPartner(entity: BusinessPartnerEntity) = withContext(Dispatchers.IO) {
+        businessPartnerDao.delete(entity)
+    }
+
+    suspend fun savePriceOverride(entity: StorePriceOverrideEntity) = withContext(Dispatchers.IO) {
+        storePriceOverrideDao.save(entity)
+    }
+
+    suspend fun deletePriceOverride(storeId: Long, productId: Long) = withContext(Dispatchers.IO) {
+        storePriceOverrideDao.delete(storeId, productId)
+    }
+
+    val recentAuditEvents: Flow<List<AuditEventEntity>> = auditEventDao.observeRecent()
+
+    suspend fun logAudit(eventType: String, description: String, referenceId: Long? = null) = withContext(Dispatchers.IO) {
+        auditEventDao.insert(AuditEventEntity(eventType = eventType, description = description, referenceId = referenceId))
     }
 
     // Consignments
@@ -105,7 +170,57 @@ class SalesRepository(private val database: AppDatabase) {
         vanLoadDao.getLoadsForDate(dateStr)
 
     suspend fun saveVanLoad(load: VanLoadEntity): Long = withContext(Dispatchers.IO) {
-        vanLoadDao.insertOrUpdateLoad(load)
+        database.withTransaction {
+            val existingLoads = vanLoadDao.getLoadsForProductOnDate(load.dateString, load.productId)
+            if (existingLoads.isEmpty()) {
+                vanLoadDao.insertOrUpdateLoad(load)
+            } else {
+                val allLoads = existingLoads + load
+                val totalQty = allLoads.sumOf { it.initialLoadedQty }
+                val weightedCost = allLoads.sumOf { it.initialLoadedQty * it.costPerPack } /
+                        totalQty.coerceAtLeast(1)
+                val primary = existingLoads.first()
+                val merged = primary.copy(
+                    initialLoadedQty = totalQty,
+                    returnedQty = allLoads.sumOf { it.returnedQty },
+                    damagedQty = allLoads.sumOf { it.damagedQty },
+                    costPerPack = weightedCost,
+                    isSetored = false,
+                    setorAmount = 0.0,
+                    setorTimestamp = null,
+                    notes = allLoads.map { it.notes }.filter { it.isNotBlank() }.distinct().joinToString("; "),
+                    updatedAt = System.currentTimeMillis()
+                )
+                vanLoadDao.updateLoad(merged)
+                existingLoads.drop(1).forEach { vanLoadDao.deleteVanLoad(it) }
+                merged.id
+            }
+        }
+    }
+
+    suspend fun normalizeVanLoadsForDate(dateString: String) = withContext(Dispatchers.IO) {
+        database.withTransaction {
+            vanLoadDao.getLoadsForDateSnapshot(dateString)
+                .groupBy { it.productId }
+                .values
+                .filter { it.size > 1 }
+                .forEach { duplicateLoads ->
+                    val primary = duplicateLoads.first()
+                    val totalQty = duplicateLoads.sumOf { it.initialLoadedQty }
+                    val weightedCost = duplicateLoads.sumOf { it.initialLoadedQty * it.costPerPack } /
+                            totalQty.coerceAtLeast(1)
+                    vanLoadDao.updateLoad(
+                        primary.copy(
+                            initialLoadedQty = totalQty,
+                            returnedQty = duplicateLoads.sumOf { it.returnedQty },
+                            damagedQty = duplicateLoads.sumOf { it.damagedQty },
+                            costPerPack = weightedCost,
+                            updatedAt = System.currentTimeMillis()
+                        )
+                    )
+                    duplicateLoads.drop(1).forEach { vanLoadDao.deleteVanLoad(it) }
+                }
+        }
     }
 
     suspend fun updateVanLoadReturn(id: Long, returned: Int, damaged: Int) = withContext(Dispatchers.IO) {
@@ -119,6 +234,92 @@ class SalesRepository(private val database: AppDatabase) {
     val allLoadDates: Flow<List<String>> = vanLoadDao.getAllLoadDates()
 
     val allLoads: Flow<List<VanLoadEntity>> = vanLoadDao.getAllLoads()
+
+    val inventoryBucketSummaries: Flow<List<InventoryBucketSummary>> =
+        inventoryMovementDao.observeBucketSummaries()
+
+    val bsProductBalances: Flow<List<InventoryProductBalance>> =
+        inventoryMovementDao.observeProductBalances("BS_UNSORTED")
+
+    fun observeDailyClosing(dateString: String): Flow<DailyClosingEntity?> =
+        dailyClosingDao.observeClosing(dateString)
+
+    suspend fun closeDaily(
+        dateString: String,
+        loads: List<ClosingLoadInput>,
+        cashCollected: Double,
+        notes: String = ""
+    ) = withContext(Dispatchers.IO) {
+        require(loads.isNotEmpty()) { "Belum ada muatan untuk ditutup" }
+        loads.forEach {
+            require(it.freshRemainingBoxes in 0..it.loadedBoxes) {
+                "Sisa fresh tidak boleh melebihi muatan"
+            }
+        }
+        val totalLoaded = loads.sumOf { it.loadedBoxes }
+        val freshRemaining = loads.sumOf { it.freshRemainingBoxes }
+        val factoryDue = loads.sumOf {
+            (it.loadedBoxes - it.freshRemainingBoxes) * it.costPerBox
+        }
+        val cash = cashCollected.coerceAtLeast(0.0)
+        dailyClosingDao.saveClosing(
+            DailyClosingEntity(
+                dateString = dateString,
+                totalLoadedBoxes = totalLoaded,
+                freshRemainingBoxes = freshRemaining,
+                factoryDue = factoryDue,
+                cashCollected = cash,
+                shortage = (factoryDue - cash).coerceAtLeast(0.0),
+                notes = notes
+            )
+        )
+    }
+
+    suspend fun recordInventoryMovement(movement: InventoryMovementEntity) =
+        withContext(Dispatchers.IO) {
+            inventoryMovementDao.insertMovement(movement)
+        }
+
+    suspend fun sortBs(productId: Long, goodPcs: Int, damagedPcs: Int) =
+        withContext(Dispatchers.IO) {
+            database.withTransaction {
+                val good = goodPcs.coerceAtLeast(0)
+                val damaged = damagedPcs.coerceAtLeast(0)
+                val total = good + damaged
+                val available = inventoryMovementDao.getBalance(productId, "BS_UNSORTED")
+                require(total <= available) { "Jumlah sortir melebihi stok BS tersedia" }
+                require(total > 0) { "Jumlah sortir harus lebih dari 0" }
+
+                inventoryMovementDao.insertMovement(
+                    InventoryMovementEntity(
+                        productId = productId,
+                        bucket = "BS_UNSORTED",
+                        quantityPcs = -total,
+                        movementType = "BS_SORTED"
+                    )
+                )
+                if (good > 0) {
+                    inventoryMovementDao.insertMovement(
+                        InventoryMovementEntity(
+                            productId = productId,
+                            bucket = "PRIVATE_READY",
+                            quantityPcs = good,
+                            movementType = "BS_REPACK"
+                        )
+                    )
+                }
+                if (damaged > 0) {
+                    inventoryMovementDao.insertMovement(
+                        InventoryMovementEntity(
+                            productId = productId,
+                            bucket = "PRIVATE_DAMAGED",
+                            quantityPcs = damaged,
+                            movementType = "BS_WRITE_OFF"
+                        )
+                    )
+                }
+            }
+        }
 
     suspend fun getLoadsForDateSnapshot(dateString: String): List<VanLoadEntity> = withContext(Dispatchers.IO) {
         vanLoadDao.getLoadsForDateSnapshot(dateString)
@@ -146,7 +347,7 @@ class SalesRepository(private val database: AppDatabase) {
         vanLoadDao.getTotalLoadCostForDate(dateString) ?: 0.0
     }
 
-    suspend fun syncVanLoadAfterReconciliation(dateString: String, reconciledItems: List<ReconciliationItemInput>) = withContext(Dispatchers.IO) {
+    suspend fun syncVanLoadAfterReconciliation(dateString: String, reconciledItems: List<ReconciliationItemInput>) {
         for (item in reconciledItems) {
             val existingLoad = vanLoadDao.getLoadForProductOnDate(dateString, item.productId)
             if (existingLoad != null) {
@@ -205,8 +406,22 @@ class SalesRepository(private val database: AppDatabase) {
         amountPaid: Double,
         previousDebtPaid: Double,
         paymentStatus: String,
-        notes: String
+        notes: String,
+        visitLocation: Location,
+        gpsAccuracyThreshold: Int
     ): VisitTransactionEntity = withContext(Dispatchers.IO) {
+        database.withTransaction {
+        require(visitLocation.hasAccuracy() && visitLocation.accuracy <= gpsAccuracyThreshold) {
+            "Akurasi GPS tidak memenuhi batas ${gpsAccuracyThreshold}m"
+        }
+        val storeLatitude = store.latitude ?: throw IllegalArgumentException("Koordinat GPS warung belum tersimpan")
+        val storeLongitude = store.longitude ?: throw IllegalArgumentException("Koordinat GPS warung belum tersimpan")
+        val distanceResult = FloatArray(1)
+        Location.distanceBetween(visitLocation.latitude, visitLocation.longitude, storeLatitude, storeLongitude, distanceResult)
+        val distanceMeters = distanceResult[0]
+        require(distanceMeters <= 100.0f) {
+            "Posisi terlalu jauh dari warung (${distanceMeters.toInt()}m), maksimal 100m"
+        }
         val dateCode = SimpleDateFormat("yyyyMMdd", Locale.getDefault()).format(Date())
         val randomDigits = (100..999).random()
         val receiptNumber = "STR-$dateCode-$randomDigits"
@@ -218,6 +433,8 @@ class SalesRepository(private val database: AppDatabase) {
         val totalOwedBeforePayment = store.outstandingDebt + totalAmountDue
         val totalPaid = amountPaid.coerceAtLeast(0.0)
         val updatedDebt = (totalOwedBeforePayment - totalPaid).coerceAtLeast(0.0)
+        require(store.status == "ACTIVE") { "Warung tidak aktif untuk transaksi" }
+        require(updatedDebt <= store.creditLimit) { "Transaksi melewati limit bon warung" }
 
         // Break down payment between past debt & current sales for receipt reporting
         val actualOldDebtPaid = if (previousDebtPaid > 0) minOf(store.outstandingDebt, previousDebtPaid) else minOf(store.outstandingDebt, totalPaid)
@@ -238,7 +455,11 @@ class SalesRepository(private val database: AppDatabase) {
             totalProfit = totalProfit,
             totalItemsSold = totalItemsSold,
             paymentStatus = paymentStatus,
-            notes = notes
+            notes = notes,
+            visitLatitude = visitLocation.latitude,
+            visitLongitude = visitLocation.longitude,
+            gpsAccuracyMeters = if (visitLocation.hasAccuracy()) visitLocation.accuracy else null,
+            gpsDistanceMeters = distanceMeters
         )
 
         val transactionId = transactionDao.insertTransaction(transaction)
@@ -254,6 +475,7 @@ class SalesRepository(private val database: AppDatabase) {
                 remainingStock = item.remainingStock,
                 soldQuantity = item.soldQty,
                 newDroppedQuantity = item.newDroppedQty,
+                sourceBucket = item.sourceBucket,
                 costPrice = item.costPrice,
                 sellPrice = item.sellPrice,
                 subtotalDue = item.soldQty * item.sellPrice,
@@ -261,6 +483,27 @@ class SalesRepository(private val database: AppDatabase) {
             )
         }
         transactionDao.insertTransactionItems(itemEntities)
+
+        // Private repack stock is consumed when it is selected as the source
+        // of a new drop. Fresh factory stock remains governed by today's load.
+        for (item in reconciledItems) {
+            if (item.sourceBucket == "PRIVATE_READY" && item.newDroppedQty > 0) {
+                val availablePrivate = inventoryMovementDao.getBalance(item.productId, "PRIVATE_READY")
+                require(item.newDroppedQty <= availablePrivate) {
+                    "Stok pribadi ${item.productName} tidak mencukupi"
+                }
+                inventoryMovementDao.insertMovement(
+                    InventoryMovementEntity(
+                        productId = item.productId,
+                        bucket = "PRIVATE_READY",
+                        quantityPcs = -item.newDroppedQty,
+                        movementType = "DROP_TO_STORE",
+                        referenceId = store.id,
+                        unitCostPerPc = item.costPrice
+                    )
+                )
+            }
+        }
 
         // Update Store Consignments for next visit:
         // Only new drops become the store's consignment — remaining goes back to van
@@ -295,17 +538,30 @@ class SalesRepository(private val database: AppDatabase) {
                         returnedQty = item.remainingStock
                     )
                 )
+                inventoryMovementDao.insertMovement(
+                    InventoryMovementEntity(
+                        productId = item.productId,
+                        bucket = "BS_UNSORTED",
+                        quantityPcs = item.remainingStock,
+                        movementType = "RETURN_FROM_STORE",
+                        referenceId = store.id,
+                        unitCostPerPc = item.costPrice
+                    )
+                )
             }
         }
 
         // Update Store Debt & Status
-        storeDao.updateStoreDebt(store.id, updatedDebt)
+        val debtSince = if (updatedDebt > 0) store.debtSince ?: System.currentTimeMillis() else null
+        storeDao.updateStoreDebt(store.id, updatedDebt, debtSince)
         storeDao.updateStoreVisitStatus(store.id, System.currentTimeMillis(), true)
 
-        // Auto-sync Van Load: deduct newDroppedQty from vehicle stock
-        syncVanLoadAfterReconciliation(dateCode, reconciledItems)
+        // Auto-sync Van Load using the same date format stored by VanLoadEntity.
+        // The receipt uses yyyyMMdd, while van loads use yyyy-MM-dd.
+        syncVanLoadAfterReconciliation(dateString, reconciledItems)
 
         transaction.copy(id = transactionId)
+        }
     }
 
     // GPS Tracking
@@ -337,5 +593,6 @@ data class ReconciliationItemInput(
     val soldQty: Int,
     val newDroppedQty: Int,
     val costPrice: Double,
-    val sellPrice: Double
+    val sellPrice: Double,
+    val sourceBucket: String = "FRESH_FACTORY"
 )

@@ -2,20 +2,25 @@ package com.example.ui.viewmodel
 
 import android.app.Application
 import android.content.Context
+import android.location.Location
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.data.local.AppDatabase
 import com.example.data.local.ConsignmentProductDetail
+import com.example.data.local.InventoryBucketSummary
+import com.example.data.local.InventoryProductBalance
 import com.example.data.local.ProductFieldStockSummary
 import com.example.data.local.TransactionWithItems
 import com.example.data.model.*
 import com.example.data.repository.ReconciliationItemInput
+import com.example.data.repository.ClosingLoadInput
 import com.example.data.repository.SalesRepository
 import com.example.ui.util.AppLanguage
 import com.example.ui.util.AppStrings
 import com.example.ui.util.AppThemeMode
 import com.example.ui.util.getAppStrings
 import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.text.NumberFormat
 import java.text.SimpleDateFormat
@@ -75,13 +80,23 @@ data class RoutePerf(
 class SalesViewModel(application: Application) : AndroidViewModel(application) {
 
     private val repository: SalesRepository
+    private val vanLoadUpdateJobs = mutableMapOf<Long, kotlinx.coroutines.Job>()
     val database: AppDatabase
     init {
         database = AppDatabase.getDatabase(application, viewModelScope)
         repository = SalesRepository(database)
+        viewModelScope.launch {
+            repository.normalizeVanLoadsForDate(
+                SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
+            )
+        }
     }
 
     private val prefs = application.getSharedPreferences("salestrack_prefs", Context.MODE_PRIVATE)
+
+    val pinEnabled = MutableStateFlow(prefs.getBoolean("security_pin_enabled", false))
+    val gpsAccuracyThreshold = MutableStateFlow(prefs.getInt("gps_accuracy_threshold", 20))
+    val printerAddress = MutableStateFlow(prefs.getString("printer_address", "") ?: "")
 
     // Language Preference (Default: English)
     private val savedLangCode = prefs.getString("pref_language", AppLanguage.ENGLISH.code) ?: AppLanguage.ENGLISH.code
@@ -108,6 +123,29 @@ class SalesViewModel(application: Application) : AndroidViewModel(application) {
         prefs.edit().putString("pref_theme_mode", mode.key).apply()
     }
 
+    fun setSecurityPin(pin: String) {
+        val clean = pin.filter(Char::isDigit).take(6)
+        prefs.edit().putString("security_pin", clean).putBoolean("security_pin_enabled", clean.length >= 4).apply()
+        pinEnabled.value = clean.length >= 4
+        viewModelScope.launch { repository.logAudit("SECURITY_PIN", if (clean.isEmpty()) "PIN dinonaktifkan" else "PIN aplikasi diperbarui") }
+    }
+
+    fun verifySecurityPin(pin: String): Boolean =
+        !pinEnabled.value || prefs.getString("security_pin", "") == pin.filter(Char::isDigit)
+
+    fun setGpsAccuracyThreshold(value: Int) {
+        val safe = value.coerceIn(5, 200)
+        prefs.edit().putInt("gps_accuracy_threshold", safe).apply()
+        gpsAccuracyThreshold.value = safe
+    }
+
+    fun setPrinterAddress(value: String) {
+        prefs.edit().putString("printer_address", value.trim()).apply()
+        printerAddress.value = value.trim()
+    }
+
+    val recentAuditEvents = repository.recentAuditEvents
+
     // Master Data Flows
     val allProducts: StateFlow<List<ProductEntity>> = repository.allProducts
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
@@ -124,6 +162,14 @@ class SalesViewModel(application: Application) : AndroidViewModel(application) {
     val fieldStockSummaries: StateFlow<List<ProductFieldStockSummary>> = repository.fieldStockSummary
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
+    val inventoryBucketSummaries: StateFlow<List<InventoryBucketSummary>> =
+        repository.inventoryBucketSummaries
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val bsProductBalances: StateFlow<List<InventoryProductBalance>> =
+        repository.bsProductBalances
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
     val storeConsignmentsMap: StateFlow<Map<Long, List<ConsignmentProductDetail>>> = repository.allConsignmentDetails
         .map { list -> list.groupBy { it.storeId } }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
@@ -138,12 +184,31 @@ class SalesViewModel(application: Application) : AndroidViewModel(application) {
         if (routeId == null) stores else stores.filter { it.routeId == routeId }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    // Today Date & Van Cargo Loads
-    val todayDateString = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
-    val todayLoads: StateFlow<List<VanLoadEntity>> = repository.getVanLoadsForDate(todayDateString)
+    // Keep date-based flows aligned when the app remains open across midnight.
+    private val activeDate: StateFlow<String> = flow {
+        while (true) {
+            emit(SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date()))
+            delay(60_000L)
+        }
+    }.distinctUntilChanged().stateIn(
+        viewModelScope,
+        SharingStarted.Eagerly,
+        SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
+    )
+
+    val todayClosing: StateFlow<DailyClosingEntity?> = activeDate.flatMapLatest { date ->
+        repository.observeDailyClosing(date)
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+
+    val todayDateString: String get() = activeDate.value
+    val todayLoads: StateFlow<List<VanLoadEntity>> = activeDate.flatMapLatest { date ->
+        repository.getVanLoadsForDate(date)
+    }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    val todayDistributedByProduct: StateFlow<Map<Long, Int>> = repository.getTransactionsForDate(todayDateString)
+    val todayDistributedByProduct: StateFlow<Map<Long, Int>> = activeDate.flatMapLatest { date ->
+        repository.getTransactionsForDate(date)
+    }
         .map { txs ->
             txs.flatMap { it.items }
                 .filter { it.newDroppedQuantity > 0 }
@@ -152,7 +217,9 @@ class SalesViewModel(application: Application) : AndroidViewModel(application) {
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
 
-    val todayReturns: StateFlow<List<VanReturnEntity>> = repository.getVanReturnsForDate(todayDateString)
+    val todayReturns: StateFlow<List<VanReturnEntity>> = activeDate.flatMapLatest { date ->
+        repository.getVanReturnsForDate(date)
+    }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     // Van Load History
@@ -397,6 +464,34 @@ class SalesViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    val debtWriteOffs = repository.debtWriteOffs
+
+    fun writeOffStoreDebt(store: StoreEntity, reason: String, onDone: () -> Unit = {}) {
+        viewModelScope.launch {
+            repository.writeOffStoreDebt(store, reason)
+            onDone()
+        }
+    }
+
+    val businessPartners = repository.businessPartners
+    val priceOverrides = repository.priceOverrides
+
+    fun saveBusinessPartner(entity: BusinessPartnerEntity, onDone: () -> Unit = {}) {
+        viewModelScope.launch { repository.saveBusinessPartner(entity); onDone() }
+    }
+
+    fun deleteBusinessPartner(entity: BusinessPartnerEntity) {
+        viewModelScope.launch { repository.deleteBusinessPartner(entity) }
+    }
+
+    fun savePriceOverride(entity: StorePriceOverrideEntity, onDone: () -> Unit = {}) {
+        viewModelScope.launch { repository.savePriceOverride(entity); onDone() }
+    }
+
+    fun deletePriceOverride(storeId: Long, productId: Long) {
+        viewModelScope.launch { repository.deletePriceOverride(storeId, productId) }
+    }
+
     fun addConsignmentToStore(storeId: Long, productId: Long, qty: Int) {
         viewModelScope.launch {
             repository.addOrUpdateConsignment(storeId, productId, qty)
@@ -425,8 +520,42 @@ class SalesViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun updateVanLoadReturn(id: Long, returned: Int, damaged: Int) {
-        viewModelScope.launch {
+        vanLoadUpdateJobs[id]?.cancel()
+        vanLoadUpdateJobs[id] = viewModelScope.launch {
+            delay(150L)
             repository.updateVanLoadReturn(id, returned, damaged)
+            vanLoadUpdateJobs.remove(id)
+        }
+    }
+
+    fun normalizeTodayVanLoads() {
+        viewModelScope.launch {
+            repository.normalizeVanLoadsForDate(todayDateString)
+        }
+    }
+
+    fun sortBs(productId: Long, goodPcs: Int, damagedPcs: Int, onError: (String) -> Unit = {}) {
+        viewModelScope.launch {
+            try {
+                repository.sortBs(productId, goodPcs, damagedPcs)
+            } catch (error: IllegalArgumentException) {
+                onError(error.message ?: "Gagal menyimpan sortir BS")
+            }
+        }
+    }
+
+    fun closeToday(
+        loads: List<ClosingLoadInput>,
+        cashCollected: Double,
+        notes: String,
+        onError: (String) -> Unit = {}
+    ) {
+        viewModelScope.launch {
+            try {
+                repository.closeDaily(todayDateString, loads, cashCollected, notes)
+            } catch (error: IllegalArgumentException) {
+                onError(error.message ?: "Gagal menyimpan closing")
+            }
         }
     }
 
@@ -445,19 +574,27 @@ class SalesViewModel(application: Application) : AndroidViewModel(application) {
         previousDebtPaid: Double,
         paymentStatus: String,
         notes: String,
-        onSuccess: (VisitTransactionEntity) -> Unit
+        visitLocation: Location,
+        onSuccess: (VisitTransactionEntity) -> Unit,
+        onError: (String) -> Unit = {}
     ) {
         viewModelScope.launch {
-            val result = repository.executeVisitReconciliation(
-                store = store,
-                route = route,
-                reconciledItems = items,
-                amountPaid = amountPaid,
-                previousDebtPaid = previousDebtPaid,
-                paymentStatus = paymentStatus,
-                notes = notes
-            )
-            onSuccess(result)
+            try {
+                val result = repository.executeVisitReconciliation(
+                    store = store,
+                    route = route,
+                    reconciledItems = items,
+                    amountPaid = amountPaid,
+                    previousDebtPaid = previousDebtPaid,
+                    paymentStatus = paymentStatus,
+                    notes = notes,
+                    visitLocation = visitLocation,
+                    gpsAccuracyThreshold = gpsAccuracyThreshold.value
+                )
+                onSuccess(result)
+            } catch (error: IllegalArgumentException) {
+                onError(error.message ?: "Validasi kunjungan gagal")
+            }
         }
     }
 

@@ -42,12 +42,14 @@ enum class NavigationItem(
     val unselectedIcon: ImageVector,
     val isBottomNavItem: Boolean = false // Only true for daily essential field operations
 ) {
+    DASHBOARD({ it.navDashboard }, Icons.Filled.Dashboard, Icons.Outlined.Dashboard, isBottomNavItem = true),
     ROUTES({ it.navRoutes }, Icons.Filled.AltRoute, Icons.Outlined.AltRoute, isBottomNavItem = true),
     STORES({ it.navStores }, Icons.Filled.Storefront, Icons.Outlined.Storefront, isBottomNavItem = true),
     INVENTORY({ it.navInventory }, Icons.Filled.Inventory2, Icons.Outlined.Inventory2, isBottomNavItem = true),
     HISTORY({ it.navHistory }, Icons.Filled.ReceiptLong, Icons.Outlined.ReceiptLong, isBottomNavItem = true),
     ANALYTICS({ it.navAnalytics }, Icons.Filled.Insights, Icons.Outlined.Insights, isBottomNavItem = false),
-    SETTINGS({ it.navSettings }, Icons.Filled.Settings, Icons.Outlined.Settings, isBottomNavItem = false)
+    SETTINGS({ it.navSettings }, Icons.Filled.Settings, Icons.Outlined.Settings, isBottomNavItem = false),
+    MASTER_DATA({ it.navMasterData }, Icons.Filled.Business, Icons.Outlined.Business, isBottomNavItem = false)
 }
 
 class MainActivity : ComponentActivity() {
@@ -84,7 +86,7 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun MainAppScreen(viewModel: SalesViewModel) {
     val strings = LocalAppStrings.current
-    var currentItem by remember { mutableStateOf(NavigationItem.ROUTES) }
+    var currentItem by remember { mutableStateOf(NavigationItem.DASHBOARD) }
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     val scope = rememberCoroutineScope()
 
@@ -216,10 +218,12 @@ fun MainAppScreen(viewModel: SalesViewModel) {
                     )
 
                     val operationsItems = listOf(
+                        NavigationItem.DASHBOARD,
                         NavigationItem.ROUTES,
                         NavigationItem.STORES,
                         NavigationItem.INVENTORY,
-                        NavigationItem.HISTORY
+                        NavigationItem.HISTORY,
+                        NavigationItem.MASTER_DATA
                     )
 
                     operationsItems.forEach { item ->
@@ -403,6 +407,12 @@ fun MainAppScreen(viewModel: SalesViewModel) {
                 .padding(bottom = innerPadding.calculateBottomPadding())
 
             when (currentItem) {
+                NavigationItem.DASHBOARD -> DashboardScreen(
+                    viewModel = viewModel,
+                    onOpenDrawer = openDrawerAction,
+                    onNavigate = { currentItem = it },
+                    modifier = screenModifier
+                )
                 NavigationItem.ROUTES -> RoutesScreen(
                     viewModel = viewModel,
                     onOpenDrawer = openDrawerAction,
@@ -433,9 +443,12 @@ fun MainAppScreen(viewModel: SalesViewModel) {
                     onOpenDrawer = openDrawerAction,
                     modifier = screenModifier
                 )
+                NavigationItem.MASTER_DATA -> MasterDataScreen(
+                    viewModel = viewModel,
+                    onOpenDrawer = openDrawerAction,
+                    modifier = screenModifier
+                )
             }
         }
     }
 }
-
-

@@ -341,8 +341,9 @@ fun RoutesScreen(
                     .collectAsState(initial = emptyList())
                 val gpsSession by viewModel.getGpsSession(activeRoute.id, todayDateStr)
                     .collectAsState(initial = null)
-                val isTrackingActive = LocationTrackingService.isRunning
-                val currentTrackingRouteId = LocationTrackingService.currentTrackingRouteId
+                val trackingState by LocationTrackingService.trackingState.collectAsState()
+                val isTrackingActive = trackingState.isRunning
+                val currentTrackingRouteId = trackingState.routeId
 
                 val routeStores = remember(stores, activeRoute) {
                     stores.filter { it.routeId == activeRoute.id }
@@ -351,12 +352,14 @@ fun RoutesScreen(
                 // Permission launcher for GPS tracking (all at once)
                 val bgPermissionLauncher = rememberLauncherForActivityResult(
                     contract = ActivityResultContracts.RequestPermission()
-                ) { _ ->
-                    val intent = Intent(context, LocationTrackingService::class.java).apply {
-                        action = LocationTrackingService.ACTION_START
-                        putExtra(LocationTrackingService.EXTRA_ROUTE_ID, activeRoute.id)
+                ) { granted ->
+                    if (granted) {
+                        val intent = Intent(context, LocationTrackingService::class.java).apply {
+                            action = LocationTrackingService.ACTION_START
+                            putExtra(LocationTrackingService.EXTRA_ROUTE_ID, activeRoute.id)
+                        }
+                        ContextCompat.startForegroundService(context, intent)
                     }
-                    ContextCompat.startForegroundService(context, intent)
                 }
 
                 val gpsTrackingPermissionLauncher = rememberLauncherForActivityResult(

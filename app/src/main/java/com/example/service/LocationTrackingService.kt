@@ -28,9 +28,14 @@ import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.Priority
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -44,6 +49,7 @@ class LocationTrackingService : Service() {
     private var currentRouteId: Long = -1
     private var currentDateString: String = ""
     private var sessionId: Long = -1
+    private var sessionInsertJob: Deferred<Long>? = null
     private var pointCount: Int = 0
     private var lastLocation: Location? = null
     private var totalDistance: Float = 0f
@@ -59,7 +65,15 @@ class LocationTrackingService : Service() {
         val isRunning: Boolean get() = _isRunning
         private var _currentRouteId: Long = -1
         val currentTrackingRouteId: Long get() = _currentRouteId
+
+        private val _trackingState = MutableStateFlow(TrackingState())
+        val trackingState: StateFlow<TrackingState> = _trackingState.asStateFlow()
     }
+
+    data class TrackingState(
+        val isRunning: Boolean = false,
+        val routeId: Long = -1L
+    )
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -106,14 +120,16 @@ class LocationTrackingService : Service() {
         }
 
         // Create session
-        scope.launch {
+        sessionInsertJob = scope.async {
             val session = GpsSessionEntity(
                 routeId = routeId,
                 dateString = currentDateString,
                 startTime = System.currentTimeMillis(),
                 isActive = true
             )
-            sessionId = database?.gpsSessionDao()?.insertSession(session) ?: -1
+            val id = database?.gpsSessionDao()?.insertSession(session) ?: -1
+            sessionId = id
+            id
         }
 
         val notification = buildNotification("Mulai tracking...")
@@ -137,28 +153,37 @@ class LocationTrackingService : Service() {
 
         _isRunning = true
         updateNotification("Tracking aktif • 0 titik")
+        _trackingState.value = TrackingState(isRunning = true, routeId = routeId)
     }
 
     private fun stopTracking() {
         fusedLocationClient.removeLocationUpdates(locationCallback)
 
-        if (sessionId != -1L) {
-            scope.launch {
+        val sessionJob = sessionInsertJob
+        val finalPointCount = pointCount
+        val finalTotalDistance = totalDistance
+        scope.launch {
+            // The session insert is asynchronous. Wait for it so a quick Stop
+            // cannot leave an active session behind in Room.
+            val finalSessionId = sessionJob?.await() ?: sessionId
+            if (finalSessionId != -1L) {
                 database?.gpsSessionDao()?.stopSession(
-                    id = sessionId,
+                    id = finalSessionId,
                     endTime = System.currentTimeMillis(),
-                    totalPoints = pointCount,
-                    totalDistance = totalDistance
+                    totalPoints = finalPointCount,
+                    totalDistance = finalTotalDistance
                 )
             }
         }
 
         _isRunning = false
         _currentRouteId = -1
+        _trackingState.value = TrackingState()
         pointCount = 0
         totalDistance = 0f
         lastLocation = null
         sessionId = -1
+        sessionInsertJob = null
 
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()

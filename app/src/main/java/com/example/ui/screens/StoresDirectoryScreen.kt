@@ -78,6 +78,7 @@ fun StoresDirectoryScreen(
     var storeToVisit by remember { mutableStateOf<StoreEntity?>(null) }
     var storeToEdit by remember { mutableStateOf<StoreEntity?>(null) }
     var storeToDelete by remember { mutableStateOf<StoreEntity?>(null) }
+    var storeToWriteOff by remember { mutableStateOf<StoreEntity?>(null) }
     var showAddStoreDialog by remember { mutableStateOf(false) }
     var lastCompletedTransaction by remember { mutableStateOf<VisitTransactionEntity?>(null) }
     var sortByNearestGps by remember { mutableStateOf(false) }
@@ -473,7 +474,8 @@ fun StoresDirectoryScreen(
                             distanceMeters = storeDistanceMap[store.id],
                             onVisit = { storeToVisit = store },
                             onEdit = { storeToEdit = store },
-                            onDelete = { storeToDelete = store }
+                            onDelete = { storeToDelete = store },
+                            onWriteOff = { storeToWriteOff = store }
                         )
                     }
                 }
@@ -523,6 +525,7 @@ fun StoresDirectoryScreen(
             initialStore = null,
             routes = allRoutes,
             preselectedRouteId = selectedRouteFilterId,
+            gpsAccuracyThreshold = viewModel.gpsAccuracyThreshold.value,
             onDismiss = { showAddStoreDialog = false },
             onSave = { newStore ->
                 viewModel.saveStore(newStore)
@@ -538,6 +541,7 @@ fun StoresDirectoryScreen(
             initialStore = storeToEdit,
             routes = allRoutes,
             preselectedRouteId = storeToEdit?.routeId,
+            gpsAccuracyThreshold = viewModel.gpsAccuracyThreshold.value,
             onDismiss = { storeToEdit = null },
             onSave = { updatedStore ->
                 viewModel.saveStore(updatedStore)
@@ -576,6 +580,39 @@ fun StoresDirectoryScreen(
             }
         )
     }
+
+    if (storeToWriteOff != null) {
+        val store = storeToWriteOff!!
+        var reason by remember(store.id) { mutableStateOf("Warung blacklist / bangkrut") }
+        AlertDialog(
+            onDismissRequest = { storeToWriteOff = null },
+            title = { Text("Write-off piutang") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text("Piutang ${store.name}: ${SalesViewModel.formatRupiah(store.outstandingDebt)}")
+                    Text("Piutang dipindahkan ke laporan kerugian dan saldo warung menjadi nol. Histori transaksi tetap tersimpan.")
+                    OutlinedTextField(
+                        value = reason,
+                        onValueChange = { reason = it },
+                        label = { Text("Alasan") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        viewModel.writeOffStoreDebt(store, reason) { storeToWriteOff = null }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                ) { Text("Hapus Buku") }
+            },
+            dismissButton = {
+                TextButton(onClick = { storeToWriteOff = null }) { Text(strings.btnCancel) }
+            }
+        )
+    }
 }
 
 @Composable
@@ -586,7 +623,8 @@ fun MasterStoreCard(
     distanceMeters: Double? = null,
     onVisit: () -> Unit,
     onEdit: () -> Unit,
-    onDelete: () -> Unit
+    onDelete: () -> Unit,
+    onWriteOff: () -> Unit
 ) {
     val strings = LocalAppStrings.current
     val context = LocalContext.current
@@ -652,6 +690,7 @@ fun MasterStoreCard(
                     horizontalAlignment = Alignment.End,
                     verticalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
+                    StoreLifecycleBadge(status = store.status)
                     if (store.isVisitedToday) {
                         StatusBadge(status = "VISITED")
                     } else {
@@ -783,6 +822,21 @@ fun MasterStoreCard(
                         )
                     }
                 }
+                val remainingCredit = (store.creditLimit - store.outstandingDebt).coerceAtLeast(0.0)
+                Text(
+                    text = "${strings.remainingCreditLabel}: ${SalesViewModel.formatRupiah(remainingCredit)} / ${SalesViewModel.formatRupiah(store.creditLimit)}",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = if (remainingCredit <= 0) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 4.dp)
+                )
+                if (store.debtSince != null) {
+                    val debtDays = ((System.currentTimeMillis() - store.debtSince) / (1000L * 60 * 60 * 24)).toInt().coerceAtLeast(0)
+                    Text(
+                        text = "${strings.debtAgeLabel}: $debtDays hari",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = if (debtDays > 21) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
             }
 
             // Consignments preview
@@ -896,11 +950,26 @@ fun MasterStoreCard(
                     )
                 }
 
+                if (store.outstandingDebt > 0) {
+                    IconButton(
+                        onClick = onWriteOff,
+                        modifier = Modifier.size(36.dp)
+                    ) {
+                        Icon(
+                            Icons.Default.ReceiptLong,
+                            contentDescription = "Write-off piutang",
+                            modifier = Modifier.size(18.dp),
+                            tint = MaterialTheme.colorScheme.error
+                        )
+                    }
+                }
+
                 Spacer(modifier = Modifier.weight(1f))
 
                 // Reconcile / Visit Button
                 Button(
                     onClick = onVisit,
+                    enabled = store.status == "ACTIVE",
                     colors = ButtonDefaults.buttonColors(
                         containerColor = if (store.isVisitedToday)
                             MaterialTheme.colorScheme.secondary
@@ -921,13 +990,34 @@ fun MasterStoreCard(
                     )
                     Spacer(modifier = Modifier.width(6.dp))
                     Text(
-                        text = strings.btnReconcileVisit,
+                        text = if (store.status == "ACTIVE") strings.btnReconcileVisit else strings.storeBlacklisted,
                         style = MaterialTheme.typography.labelMedium,
                         fontWeight = FontWeight.SemiBold
                     )
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun StoreLifecycleBadge(status: String) {
+    val (label, container, content) = when (status) {
+        "BLACKLISTED" -> Triple("BLACKLIST", MaterialTheme.colorScheme.errorContainer, MaterialTheme.colorScheme.onErrorContainer)
+        "TEMPORARILY_CLOSED" -> Triple("TUTUP SEMENTARA", MaterialTheme.colorScheme.tertiaryContainer, MaterialTheme.colorScheme.onTertiaryContainer)
+        else -> Triple("AKTIF", MaterialTheme.colorScheme.primaryContainer, MaterialTheme.colorScheme.onPrimaryContainer)
+    }
+    Surface(
+        shape = RoundedCornerShape(50),
+        color = container
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = FontWeight.Bold,
+            color = content,
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+        )
     }
 }
 
@@ -938,6 +1028,7 @@ fun MasterStoreFormDialog(
     initialStore: StoreEntity?,
     routes: List<RouteEntity>,
     preselectedRouteId: Long?,
+    gpsAccuracyThreshold: Int = 20,
     onDismiss: () -> Unit,
     onSave: (StoreEntity) -> Unit
 ) {
@@ -957,6 +1048,10 @@ fun MasterStoreFormDialog(
     var latitude by remember { mutableStateOf(initialStore?.latitude) }
     var longitude by remember { mutableStateOf(initialStore?.longitude) }
     var notes by remember { mutableStateOf(initialStore?.notes ?: "") }
+    var storeStatus by remember { mutableStateOf(initialStore?.status ?: "ACTIVE") }
+    var creditLimitText by remember {
+        mutableStateOf(initialStore?.creditLimit?.toLong()?.toString() ?: "500000")
+    }
     var isAddressManuallyEdited by remember { mutableStateOf(false) }
     var isDetectingGps by remember { mutableStateOf(false) }
 
@@ -970,6 +1065,10 @@ fun MasterStoreFormDialog(
             try {
                 val loc = LocationHelper.getCurrentLocation(context)
                 if (loc != null) {
+                    if (loc.hasAccuracy() && loc.accuracy > gpsAccuracyThreshold) {
+                        Toast.makeText(context, "Akurasi GPS ${loc.accuracy.toInt()}m, perlu <= ${gpsAccuracyThreshold}m", Toast.LENGTH_LONG).show()
+                        return@launch
+                    }
                     latitude = loc.latitude
                     longitude = loc.longitude
                     val addr = LocationHelper.getAddressFromLocation(context, loc, routeArea)
@@ -1058,6 +1157,41 @@ fun MasterStoreFormDialog(
                     onValueChange = { storeName = it },
                     label = { Text(strings.storeNameLabel) },
                     placeholder = { Text(strings.storeNamePlaceholder) },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                Text(
+                    text = strings.storeLifecycleLabel,
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    listOf(
+                        "ACTIVE" to strings.storeActive,
+                        "TEMPORARILY_CLOSED" to strings.storeTemporarilyClosed,
+                        "BLACKLISTED" to strings.storeBlacklisted
+                    ).forEach { (value, label) ->
+                        FilterChip(
+                            selected = storeStatus == value,
+                            onClick = { storeStatus = value },
+                            label = { Text(label) }
+                        )
+                    }
+                }
+
+                OutlinedTextField(
+                    value = creditLimitText,
+                    onValueChange = { value ->
+                        creditLimitText = value.filter(Char::isDigit).take(12)
+                    },
+                    label = { Text(strings.creditLimitLabel) },
+                    placeholder = { Text(strings.creditLimitPlaceholder) },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
@@ -1164,7 +1298,9 @@ fun MasterStoreFormDialog(
                             address = address.trim(),
                             latitude = latitude,
                             longitude = longitude,
-                            notes = notes.trim()
+                            notes = notes.trim(),
+                            status = storeStatus,
+                            creditLimit = creditLimitText.toDoubleOrNull()?.coerceAtLeast(0.0) ?: 500_000.0
                         ) ?: StoreEntity(
                             routeId = selectedRouteId,
                             name = storeName.trim(),
@@ -1173,7 +1309,9 @@ fun MasterStoreFormDialog(
                             address = address.trim(),
                             latitude = latitude,
                             longitude = longitude,
-                            notes = notes.trim()
+                            notes = notes.trim(),
+                            status = storeStatus,
+                            creditLimit = creditLimitText.toDoubleOrNull()?.coerceAtLeast(0.0) ?: 500_000.0
                         )
                         onSave(finalStore)
                     } else if (selectedRouteId <= 0) {

@@ -1,5 +1,6 @@
 package com.example.ui.screens
 
+import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -17,6 +18,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
@@ -24,6 +26,7 @@ import androidx.compose.ui.unit.sp
 import com.example.data.model.ProductEntity
 import com.example.data.model.VanLoadEntity
 import com.example.data.model.VanReturnEntity
+import com.example.data.repository.ClosingLoadInput
 import com.example.ui.components.EditableNumberStepper
 import com.example.ui.components.NumberStepper
 import com.example.ui.components.StatCard
@@ -48,10 +51,24 @@ fun InventoryCargoScreen(
     val todayReturns by viewModel.todayReturns.collectAsState()
     val allLoads by viewModel.allLoads.collectAsState()
     val fieldStockSummaries by viewModel.fieldStockSummaries.collectAsState()
+    val inventoryBucketSummaries by viewModel.inventoryBucketSummaries.collectAsState()
+    val bsProductBalances by viewModel.bsProductBalances.collectAsState()
+    val todayClosing by viewModel.todayClosing.collectAsState()
+    val freshPcs = todayLoads.sumOf { load ->
+        val packSize = products.find { it.id == load.productId }?.packSize ?: 1
+        load.initialLoadedQty * packSize
+    } - todayDistributedByProduct.values.sum()
+
+    LaunchedEffect(Unit) {
+        viewModel.normalizeTodayVanLoads()
+    }
 
     var showAddProductDialog by remember { mutableStateOf(false) }
     var productToEdit by remember { mutableStateOf<ProductEntity?>(null) }
     var showAddLoadDialog by remember { mutableStateOf(false) }
+    var showSortBsDialog by remember { mutableStateOf(false) }
+    var showClosingDialog by remember { mutableStateOf(false) }
+    val context = LocalContext.current
 
     Scaffold(
         topBar = {
@@ -79,8 +96,13 @@ fun InventoryCargoScreen(
                                 Icon(Icons.Default.AddCircle, contentDescription = strings.btnAddProduct)
                             }
                         } else if (selectedTab == 0) {
-                            IconButton(onClick = { showAddLoadDialog = true }) {
-                                Icon(Icons.Default.AddShoppingCart, contentDescription = strings.btnAddCargo)
+                            Row {
+                                IconButton(onClick = { showClosingDialog = true }) {
+                                    Icon(Icons.Default.CheckCircle, contentDescription = "Closing harian")
+                                }
+                                IconButton(onClick = { showAddLoadDialog = true }) {
+                                    Icon(Icons.Default.AddShoppingCart, contentDescription = strings.btnAddCargo)
+                                }
                             }
                         }
                     },
@@ -141,6 +163,10 @@ fun InventoryCargoScreen(
                     products = products,
                     distributedByProduct = todayDistributedByProduct,
                     returns = todayReturns,
+                    inventoryBuckets = inventoryBucketSummaries,
+                    freshPcs = freshPcs.coerceAtLeast(0),
+                    onSortBsClick = { showSortBsDialog = true },
+                    closing = todayClosing,
                     viewModel = viewModel,
                     onAddLoadClick = { showAddLoadDialog = true }
                 )
@@ -403,6 +429,35 @@ fun InventoryCargoScreen(
             }
         )
     }
+
+    if (showSortBsDialog) {
+        SortBsDialog(
+            products = products,
+            balances = bsProductBalances,
+            onDismiss = { showSortBsDialog = false },
+            onConfirm = { productId, good, damaged ->
+                viewModel.sortBs(productId, good, damaged) { message ->
+                    Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+                }
+                showSortBsDialog = false
+            }
+        )
+    }
+
+    if (showClosingDialog) {
+        DailyClosingDialog(
+            loads = todayLoads,
+            products = products,
+            existingClosing = todayClosing,
+            onDismiss = { showClosingDialog = false },
+            onConfirm = { inputs, cash, notes ->
+                viewModel.closeToday(inputs, cash, notes) { message ->
+                    Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+                }
+                showClosingDialog = false
+            }
+        )
+    }
 }
 
 @Composable
@@ -411,6 +466,10 @@ fun CargoLoadTab(
     products: List<ProductEntity>,
     distributedByProduct: Map<Long, Int>,
     returns: List<VanReturnEntity>,
+    inventoryBuckets: List<com.example.data.local.InventoryBucketSummary>,
+    freshPcs: Int,
+    onSortBsClick: () -> Unit,
+    closing: com.example.data.model.DailyClosingEntity?,
     viewModel: SalesViewModel,
     onAddLoadClick: () -> Unit
 ) {
@@ -457,6 +516,12 @@ fun CargoLoadTab(
             verticalArrangement = Arrangement.spacedBy(12.dp),
             contentPadding = PaddingValues(bottom = 80.dp)
         ) {
+            item {
+                InventoryBucketsCard(inventoryBuckets, freshPcs, onSortBsClick)
+            }
+            item {
+                ClosingStatusCard(closing)
+            }
             item {
                 Surface(
                     color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f),
@@ -667,6 +732,324 @@ fun CargoLoadTab(
             }
         }
     }
+}
+
+@Composable
+private fun InventoryBucketsCard(
+    summaries: List<com.example.data.local.InventoryBucketSummary>,
+    freshPcs: Int,
+    onSortBsClick: () -> Unit
+) {
+    val values = mapOf(
+        "FRESH_FACTORY" to ("Fresh pabrik" to MaterialTheme.colorScheme.primary),
+        "BS_UNSORTED" to ("BS belum sortir" to MaterialTheme.colorScheme.tertiary),
+        "PRIVATE_READY" to ("Pribadi layak jual" to MaterialTheme.colorScheme.secondary),
+        "PRIVATE_DAMAGED" to ("Pribadi rusak" to MaterialTheme.colorScheme.error)
+    )
+    val totals = summaries.associate { it.bucket to it.totalPcs } + ("FRESH_FACTORY" to freshPcs)
+
+    ElevatedCard(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surface),
+        elevation = CardDefaults.elevatedCardElevation(defaultElevation = 1.dp)
+    ) {
+        Column(modifier = Modifier.padding(14.dp)) {
+            Text("Empat laci inventory", fontWeight = FontWeight.ExtraBold)
+            Text(
+                "Kepemilikan stok terpisah dan mudah diaudit",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            if ((totals["BS_UNSORTED"] ?: 0) > 0) {
+                TextButton(onClick = onSortBsClick) {
+                    Text("Sortir BS")
+                }
+            }
+            Spacer(modifier = Modifier.height(12.dp))
+            values.entries.chunked(2).forEachIndexed { index, row ->
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    row.forEach { (bucket, labelAndColor) ->
+                        val (label, color) = labelAndColor
+                        Surface(
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(10.dp),
+                            color = color.copy(alpha = 0.10f)
+                        ) {
+                            Column(modifier = Modifier.padding(10.dp)) {
+                                Text(
+                                    label,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                Text(
+                                    "${totals[bucket] ?: 0} pcs",
+                                    style = MaterialTheme.typography.titleSmall,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    color = color
+                                )
+                            }
+                        }
+                    }
+                    if (row.size == 1) Spacer(modifier = Modifier.weight(1f))
+                }
+                if (index < values.entries.chunked(2).lastIndex) Spacer(modifier = Modifier.height(8.dp))
+            }
+        }
+    }
+}
+
+@Composable
+private fun ClosingStatusCard(closing: com.example.data.model.DailyClosingEntity?) {
+    val shortage = closing?.shortage ?: 0.0
+    ElevatedCard(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.elevatedCardColors(
+            containerColor = if (closing == null) {
+                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+            } else if (shortage > 0) {
+                MaterialTheme.colorScheme.errorContainer
+            } else {
+                MaterialTheme.colorScheme.primaryContainer
+            }
+        ),
+        elevation = CardDefaults.elevatedCardElevation(defaultElevation = 1.dp)
+    ) {
+        Column(modifier = Modifier.padding(14.dp)) {
+            Text("Closing harian", fontWeight = FontWeight.ExtraBold)
+            if (closing == null) {
+                Text(
+                    "Belum ditutup. Pastikan sisa fresh dan kas sudah dihitung.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            } else {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    ClosingValue("Tagihan pabrik", SalesViewModel.formatRupiah(closing.factoryDue))
+                    ClosingValue("Kas terkumpul", SalesViewModel.formatRupiah(closing.cashCollected))
+                    ClosingValue(
+                        "Kurang setor",
+                        SalesViewModel.formatRupiah(shortage),
+                        if (shortage > 0) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ClosingValue(label: String, value: String, color: Color = MaterialTheme.colorScheme.onSurface) {
+    Column(modifier = Modifier.widthIn(max = 125.dp)) {
+        Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(value, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.ExtraBold, color = color)
+    }
+}
+
+@Composable
+private fun SortBsDialog(
+    products: List<ProductEntity>,
+    balances: List<com.example.data.local.InventoryProductBalance>,
+    onDismiss: () -> Unit,
+    onConfirm: (Long, Int, Int) -> Unit
+) {
+    var selectedProductId by remember(balances) { mutableStateOf(balances.firstOrNull()?.productId) }
+    var goodText by remember { mutableStateOf("") }
+    var damagedText by remember { mutableStateOf("") }
+    val selectedBalance = balances.firstOrNull { it.productId == selectedProductId }
+        ?: balances.firstOrNull()
+    val activeProductId = selectedBalance?.productId
+    val selectedProduct = products.firstOrNull { it.id == activeProductId }
+    val available = selectedBalance?.totalPcs ?: 0
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Sortir BS") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    "Pisahkan BS bagus untuk repack dan BS rusak untuk write-off.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                if (balances.isEmpty()) {
+                    Text("Belum ada BS yang bisa disortir.")
+                } else {
+                    Text("Produk", fontWeight = FontWeight.Bold)
+                    balances.forEach { balance ->
+                        val product = products.firstOrNull { it.id == balance.productId }
+                        FilterChip(
+                            selected = balance.productId == activeProductId,
+                            onClick = {
+                                selectedProductId = balance.productId
+                                goodText = ""
+                                damagedText = ""
+                            },
+                            label = {
+                                Text("${product?.name ?: "Produk #${balance.productId}"} • ${balance.totalPcs} pcs")
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                    Text(
+                        "Tersedia: ${selectedProduct?.name ?: "Produk"} • $available pcs",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    OutlinedTextField(
+                        value = goodText,
+                        onValueChange = { goodText = it.filter(Char::isDigit) },
+                        label = { Text("BS bagus / repack") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    OutlinedTextField(
+                        value = damagedText,
+                        onValueChange = { damagedText = it.filter(Char::isDigit) },
+                        label = { Text("BS rusak / write-off") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                enabled = activeProductId != null,
+                onClick = {
+                    val productId = activeProductId
+                    if (productId != null) {
+                        onConfirm(
+                            productId,
+                            goodText.toIntOrNull() ?: 0,
+                            damagedText.toIntOrNull() ?: 0
+                        )
+                    }
+                }
+            ) {
+                Text("Simpan")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Batal") }
+        }
+    )
+}
+
+@Composable
+private fun DailyClosingDialog(
+    loads: List<VanLoadEntity>,
+    products: List<ProductEntity>,
+    existingClosing: com.example.data.model.DailyClosingEntity?,
+    onDismiss: () -> Unit,
+    onConfirm: (List<ClosingLoadInput>, Double, String) -> Unit
+) {
+    val remainingByLoad = remember(loads) {
+        mutableStateMapOf<Long, String>().apply {
+            loads.forEach { put(it.id, "0") }
+        }
+    }
+    var cashText by remember { mutableStateOf("") }
+    var notes by remember { mutableStateOf("") }
+    val factoryDue = loads.sumOf { load ->
+        val remaining = remainingByLoad[load.id]?.toIntOrNull()?.coerceAtLeast(0) ?: 0
+        (load.initialLoadedQty - remaining).coerceAtLeast(0) * load.costPerPack
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Closing & Setoran Pabrik") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                existingClosing?.let { closing ->
+                    Surface(
+                        color = MaterialTheme.colorScheme.primaryContainer,
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            "Closing tersimpan: tagihan ${SalesViewModel.formatRupiah(closing.factoryDue)}",
+                            modifier = Modifier.padding(10.dp),
+                            style = MaterialTheme.typography.labelMedium
+                        )
+                    }
+                }
+                Text(
+                    "Masukkan sisa fresh fisik dalam satuan box. BS tidak mengurangi tagihan pabrik.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                if (loads.isEmpty()) {
+                    Text("Belum ada muatan hari ini.")
+                } else {
+                    loads.forEach { load ->
+                        val product = products.firstOrNull { it.id == load.productId }
+                        OutlinedTextField(
+                            value = remainingByLoad[load.id] ?: "0",
+                            onValueChange = { value ->
+                                remainingByLoad[load.id] = value.filter(Char::isDigit)
+                            },
+                            label = {
+                                Text("${product?.name ?: "Produk #${load.productId}"} • muat ${load.initialLoadedQty} box")
+                            },
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                }
+                Text(
+                    "Tagihan pabrik: ${SalesViewModel.formatRupiah(factoryDue)}",
+                    fontWeight = FontWeight.ExtraBold,
+                    color = MaterialTheme.colorScheme.primary
+                )
+                OutlinedTextField(
+                    value = cashText,
+                    onValueChange = { cashText = it.filter { char -> char.isDigit() } },
+                    label = { Text("Kas terkumpul dari warung") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                OutlinedTextField(
+                    value = notes,
+                    onValueChange = { notes = it },
+                    label = { Text("Catatan") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(
+                enabled = loads.isNotEmpty(),
+                onClick = {
+                    onConfirm(
+                        loads.map { load ->
+                            ClosingLoadInput(
+                                productId = load.productId,
+                                loadedBoxes = load.initialLoadedQty,
+                                freshRemainingBoxes = remainingByLoad[load.id]?.toIntOrNull() ?: 0,
+                                costPerBox = load.costPerPack
+                            )
+                        },
+                        cashText.toDoubleOrNull() ?: 0.0,
+                        notes
+                    )
+                }
+            ) { Text("Simpan closing") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Batal") }
+        }
+    )
 }
 
 @Composable

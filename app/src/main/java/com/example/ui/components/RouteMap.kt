@@ -76,6 +76,7 @@ fun RouteMapCard(
                     .height(220.dp)
             ) {
                 OsmMapView(
+                    routeId = routeId,
                     gpsPoints = gpsPoints,
                     stores = stores,
                     modifier = Modifier.fillMaxSize()
@@ -161,6 +162,7 @@ fun RouteMapCard(
 
 @Composable
 fun OsmMapView(
+    routeId: Long,
     gpsPoints: List<GpsTrackEntity>,
     stores: List<StoreEntity>,
     modifier: Modifier = Modifier
@@ -173,7 +175,11 @@ fun OsmMapView(
         Configuration.getInstance().userAgentValue = context.packageName
     }
 
-    var mapView by remember { mutableStateOf<MapView?>(null) }
+    var hasAutoFitted by remember { mutableStateOf(false) }
+
+    LaunchedEffect(routeId) {
+        hasAutoFitted = false
+    }
 
     AndroidView(
         factory = { ctx ->
@@ -181,7 +187,6 @@ fun OsmMapView(
                 setTileSource(TileSourceFactory.MAPNIK)
                 setMultiTouchControls(true)
                 controller.setZoom(15.0)
-                mapView = this
             }
         },
         update = { map ->
@@ -205,14 +210,21 @@ fun OsmMapView(
                 val end = gpsPoints.last()
                 addMarker(map, ctx, end.latitude, end.longitude, "Sekarang", Color(0xFFEF4444))
 
-                // Fit bounds
-                val boundingBox = BoundingBox.fromGeoPoints(
-                    gpsPoints.map { GeoPoint(it.latitude, it.longitude) }
-                )
-                map.zoomToBoundingBox(boundingBox.increaseByScale(1.3f), true)
+                // Frame the route once. Re-fitting on every GPS point would
+                // continuously override the user's zoom and pan.
+                if (!hasAutoFitted) {
+                    val boundingBox = BoundingBox.fromGeoPoints(
+                        gpsPoints.map { GeoPoint(it.latitude, it.longitude) }
+                    )
+                    map.zoomToBoundingBox(boundingBox.increaseByScale(1.3f), true)
+                    hasAutoFitted = true
+                }
             } else if (gpsPoints.size == 1) {
                 val point = gpsPoints.first()
-                map.controller.setCenter(GeoPoint(point.latitude, point.longitude))
+                if (!hasAutoFitted) {
+                    map.controller.setCenter(GeoPoint(point.latitude, point.longitude))
+                    hasAutoFitted = true
+                }
                 addMarker(map, ctx, point.latitude, point.longitude, "Posisi", Color(0xFF3ECF8E))
             }
 

@@ -95,6 +95,9 @@ object BackupRestoreUtil {
             obj.put("isVisitedToday", s.isVisitedToday)
             if (s.latitude != null) obj.put("latitude", s.latitude)
             if (s.longitude != null) obj.put("longitude", s.longitude)
+            obj.put("status", s.status)
+            obj.put("creditLimit", s.creditLimit)
+            obj.put("debtSince", s.debtSince ?: JSONObject.NULL)
             storesArray.put(obj)
         }
         rootObj.put("stores", storesArray)
@@ -129,7 +132,85 @@ object BackupRestoreUtil {
         }
         rootObj.put("vanLoads", vanLoadsArray)
 
-        // 6. Visit Transactions
+        // 6. Inventory ownership ledger
+        val movements = database.inventoryMovementDao().getAllMovementsSnapshot()
+        val movementsArray = JSONArray()
+        movements.forEach { movement ->
+            movementsArray.put(JSONObject().apply {
+                put("id", movement.id)
+                put("productId", movement.productId)
+                put("bucket", movement.bucket)
+                put("quantityPcs", movement.quantityPcs)
+                put("movementType", movement.movementType)
+                put("referenceId", movement.referenceId ?: JSONObject.NULL)
+                put("unitCostPerPc", movement.unitCostPerPc)
+                put("notes", movement.notes)
+                put("createdAt", movement.createdAt)
+            })
+        }
+        rootObj.put("inventoryMovements", movementsArray)
+
+        // 7. Daily factory closings
+        val closings = database.dailyClosingDao().getAllClosingsSnapshot()
+        val closingsArray = JSONArray()
+        closings.forEach { closing ->
+            closingsArray.put(JSONObject().apply {
+                put("dateString", closing.dateString)
+                put("totalLoadedBoxes", closing.totalLoadedBoxes)
+                put("freshRemainingBoxes", closing.freshRemainingBoxes)
+                put("factoryDue", closing.factoryDue)
+                put("cashCollected", closing.cashCollected)
+                put("shortage", closing.shortage)
+                put("closedAt", closing.closedAt)
+                put("notes", closing.notes)
+            })
+        }
+        rootObj.put("dailyClosings", closingsArray)
+
+        // 8. Debt loss ledger
+        val writeOffs = database.debtWriteOffDao().getAllSnapshot()
+        val writeOffsArray = JSONArray()
+        writeOffs.forEach { writeOff ->
+            writeOffsArray.put(JSONObject().apply {
+                put("id", writeOff.id)
+                put("storeId", writeOff.storeId)
+                put("amount", writeOff.amount)
+                put("reason", writeOff.reason)
+                put("createdAt", writeOff.createdAt)
+            })
+        }
+        rootObj.put("debtWriteOffs", writeOffsArray)
+
+        val partnersArray = JSONArray()
+        database.businessPartnerDao().getAllSnapshot().forEach { partner ->
+            partnersArray.put(JSONObject().apply {
+                put("id", partner.id); put("kind", partner.kind); put("name", partner.name)
+                put("contactName", partner.contactName); put("phone", partner.phone); put("address", partner.address)
+                put("paymentTerms", partner.paymentTerms); put("bankAccount", partner.bankAccount); put("notes", partner.notes)
+                put("active", partner.active); put("createdAt", partner.createdAt)
+            })
+        }
+        rootObj.put("businessPartners", partnersArray)
+
+        val overridesArray = JSONArray()
+        database.storePriceOverrideDao().getAllSnapshot().forEach { override ->
+            overridesArray.put(JSONObject().apply {
+                put("storeId", override.storeId); put("productId", override.productId); put("pricePerPc", override.pricePerPc)
+                put("validFrom", override.validFrom); put("validUntil", override.validUntil ?: JSONObject.NULL); put("updatedAt", override.updatedAt)
+            })
+        }
+        rootObj.put("priceOverrides", overridesArray)
+
+        val auditArray = JSONArray()
+        database.auditEventDao().getAllSnapshot().forEach { event ->
+            auditArray.put(JSONObject().apply {
+                put("id", event.id); put("eventType", event.eventType); put("referenceId", event.referenceId ?: JSONObject.NULL)
+                put("description", event.description); put("createdAt", event.createdAt)
+            })
+        }
+        rootObj.put("auditEvents", auditArray)
+
+        // 9. Visit Transactions
         val transactions = database.transactionDao().getAllTransactionsSnapshot()
         val transactionsArray = JSONArray()
         transactions.forEach { t ->
@@ -149,6 +230,10 @@ object BackupRestoreUtil {
             obj.put("totalItemsSold", t.totalItemsSold)
             obj.put("paymentStatus", t.paymentStatus)
             obj.put("notes", t.notes)
+            if (t.visitLatitude != null) obj.put("visitLatitude", t.visitLatitude)
+            if (t.visitLongitude != null) obj.put("visitLongitude", t.visitLongitude)
+            if (t.gpsAccuracyMeters != null) obj.put("gpsAccuracyMeters", t.gpsAccuracyMeters)
+            if (t.gpsDistanceMeters != null) obj.put("gpsDistanceMeters", t.gpsDistanceMeters)
             transactionsArray.put(obj)
         }
         rootObj.put("transactions", transactionsArray)
@@ -168,6 +253,7 @@ object BackupRestoreUtil {
             obj.put("remainingStock", ti.remainingStock)
             obj.put("soldQuantity", ti.soldQuantity)
             obj.put("newDroppedQuantity", ti.newDroppedQuantity)
+            obj.put("sourceBucket", ti.sourceBucket)
             obj.put("costPrice", ti.costPrice)
             obj.put("sellPrice", ti.sellPrice)
             obj.put("subtotalDue", ti.subtotalDue)
@@ -321,7 +407,10 @@ object BackupRestoreUtil {
                         lastVisitedDate = if (lastVisited > 0) lastVisited else null,
                         isVisitedToday = obj.optBoolean("isVisitedToday", false),
                         latitude = if (obj.has("latitude")) obj.optDouble("latitude") else null,
-                        longitude = if (obj.has("longitude")) obj.optDouble("longitude") else null
+                        longitude = if (obj.has("longitude")) obj.optDouble("longitude") else null,
+                        status = obj.optString("status", "ACTIVE"),
+                        creditLimit = obj.optDouble("creditLimit", 500_000.0),
+                        debtSince = if (obj.isNull("debtSince")) null else obj.optLong("debtSince")
                     )
                 )
             }
@@ -360,6 +449,92 @@ object BackupRestoreUtil {
                 )
             }
 
+            // Parse inventory ownership ledger
+            val movementsList = mutableListOf<InventoryMovementEntity>()
+            val movementsArr = rootObj.optJSONArray("inventoryMovements") ?: JSONArray()
+            for (i in 0 until movementsArr.length()) {
+                val obj = movementsArr.getJSONObject(i)
+                movementsList.add(
+                    InventoryMovementEntity(
+                        id = obj.optLong("id", 0L),
+                        productId = obj.optLong("productId", 0L),
+                        bucket = obj.optString("bucket", "BS_UNSORTED"),
+                        quantityPcs = obj.optInt("quantityPcs", 0),
+                        movementType = obj.optString("movementType", "RESTORE"),
+                        referenceId = if (obj.isNull("referenceId")) null else obj.optLong("referenceId"),
+                        unitCostPerPc = obj.optDouble("unitCostPerPc", 0.0),
+                        notes = obj.optString("notes", ""),
+                        createdAt = obj.optLong("createdAt", System.currentTimeMillis())
+                    )
+                )
+            }
+
+            // Parse daily factory closings
+            val closingsList = mutableListOf<DailyClosingEntity>()
+            val closingsArr = rootObj.optJSONArray("dailyClosings") ?: JSONArray()
+            for (i in 0 until closingsArr.length()) {
+                val obj = closingsArr.getJSONObject(i)
+                closingsList.add(
+                    DailyClosingEntity(
+                        dateString = obj.optString("dateString", ""),
+                        totalLoadedBoxes = obj.optInt("totalLoadedBoxes", 0),
+                        freshRemainingBoxes = obj.optInt("freshRemainingBoxes", 0),
+                        factoryDue = obj.optDouble("factoryDue", 0.0),
+                        cashCollected = obj.optDouble("cashCollected", 0.0),
+                        shortage = obj.optDouble("shortage", 0.0),
+                        closedAt = obj.optLong("closedAt", System.currentTimeMillis()),
+                        notes = obj.optString("notes", "")
+                    )
+                )
+            }
+
+            val writeOffsList = mutableListOf<DebtWriteOffEntity>()
+            val writeOffsArr = rootObj.optJSONArray("debtWriteOffs") ?: JSONArray()
+            for (i in 0 until writeOffsArr.length()) {
+                val obj = writeOffsArr.getJSONObject(i)
+                writeOffsList.add(
+                    DebtWriteOffEntity(
+                        id = obj.optLong("id", 0L),
+                        storeId = obj.optLong("storeId", 0L),
+                        amount = obj.optDouble("amount", 0.0),
+                        reason = obj.optString("reason", "Write-off piutang"),
+                        createdAt = obj.optLong("createdAt", System.currentTimeMillis())
+                    )
+                )
+            }
+
+            val partnersList = mutableListOf<BusinessPartnerEntity>()
+            val partnersArr = rootObj.optJSONArray("businessPartners") ?: JSONArray()
+            for (i in 0 until partnersArr.length()) {
+                val obj = partnersArr.getJSONObject(i)
+                partnersList.add(BusinessPartnerEntity(
+                    id = obj.optLong("id", 0L), kind = obj.optString("kind", "SUPPLIER"), name = obj.optString("name", ""),
+                    contactName = obj.optString("contactName", ""), phone = obj.optString("phone", ""), address = obj.optString("address", ""),
+                    paymentTerms = obj.optString("paymentTerms", ""), bankAccount = obj.optString("bankAccount", ""), notes = obj.optString("notes", ""),
+                    active = obj.optBoolean("active", true), createdAt = obj.optLong("createdAt", System.currentTimeMillis())
+                ))
+            }
+            val overridesList = mutableListOf<StorePriceOverrideEntity>()
+            val overridesArr = rootObj.optJSONArray("priceOverrides") ?: JSONArray()
+            for (i in 0 until overridesArr.length()) {
+                val obj = overridesArr.getJSONObject(i)
+                overridesList.add(StorePriceOverrideEntity(
+                    storeId = obj.optLong("storeId", 0L), productId = obj.optLong("productId", 0L),
+                    pricePerPc = obj.optDouble("pricePerPc", 0.0), validFrom = obj.optString("validFrom", ""),
+                    validUntil = if (obj.isNull("validUntil")) null else obj.optString("validUntil"), updatedAt = obj.optLong("updatedAt", System.currentTimeMillis())
+                ))
+            }
+            val auditList = mutableListOf<AuditEventEntity>()
+            val auditArr = rootObj.optJSONArray("auditEvents") ?: JSONArray()
+            for (i in 0 until auditArr.length()) {
+                val obj = auditArr.getJSONObject(i)
+                auditList.add(AuditEventEntity(
+                    id = obj.optLong("id", 0L), eventType = obj.optString("eventType", "RESTORE"),
+                    referenceId = if (obj.isNull("referenceId")) null else obj.optLong("referenceId"),
+                    description = obj.optString("description", "Restore backup"), createdAt = obj.optLong("createdAt", System.currentTimeMillis())
+                ))
+            }
+
             // Parse Transactions
             val txList = mutableListOf<VisitTransactionEntity>()
             val txArr = rootObj.optJSONArray("transactions") ?: JSONArray()
@@ -381,7 +556,11 @@ object BackupRestoreUtil {
                         totalProfit = obj.optDouble("totalProfit", 0.0),
                         totalItemsSold = obj.optInt("totalItemsSold", 0),
                         paymentStatus = obj.optString("paymentStatus", "LUNAS"),
-                        notes = obj.optString("notes", "")
+                        notes = obj.optString("notes", ""),
+                        visitLatitude = if (obj.has("visitLatitude")) obj.optDouble("visitLatitude") else null,
+                        visitLongitude = if (obj.has("visitLongitude")) obj.optDouble("visitLongitude") else null,
+                        gpsAccuracyMeters = if (obj.has("gpsAccuracyMeters")) obj.optDouble("gpsAccuracyMeters").toFloat() else null,
+                        gpsDistanceMeters = if (obj.has("gpsDistanceMeters")) obj.optDouble("gpsDistanceMeters").toFloat() else null
                     )
                 )
             }
@@ -403,6 +582,7 @@ object BackupRestoreUtil {
                         remainingStock = obj.optInt("remainingStock", 0),
                         soldQuantity = obj.optInt("soldQuantity", 0),
                         newDroppedQuantity = obj.optInt("newDroppedQuantity", 0),
+                        sourceBucket = obj.optString("sourceBucket", "FRESH_FACTORY"),
                         costPrice = obj.optDouble("costPrice", 0.0),
                         sellPrice = obj.optDouble("sellPrice", 0.0),
                         subtotalDue = obj.optDouble("subtotalDue", 0.0),
@@ -417,6 +597,12 @@ object BackupRestoreUtil {
                 database.transactionDao().deleteAllTransactionItems()
                 database.transactionDao().deleteAllTransactions()
                 database.vanLoadDao().deleteAllVanLoads()
+                database.inventoryMovementDao().deleteAllMovements()
+                database.dailyClosingDao().deleteAllClosings()
+                database.debtWriteOffDao().deleteAll()
+                database.businessPartnerDao().deleteAll()
+                database.storePriceOverrideDao().deleteAll()
+                database.auditEventDao().deleteAll()
                 database.consignmentDao().deleteAllConsignments()
                 database.storeDao().deleteAllStores()
                 database.routeDao().deleteAllRoutes()
@@ -428,6 +614,12 @@ object BackupRestoreUtil {
                 if (storesList.isNotEmpty()) database.storeDao().insertStores(storesList)
                 if (consignmentsList.isNotEmpty()) database.consignmentDao().insertConsignments(consignmentsList)
                 if (vanLoadsList.isNotEmpty()) database.vanLoadDao().insertLoads(vanLoadsList)
+                if (movementsList.isNotEmpty()) database.inventoryMovementDao().insertMovements(movementsList)
+                if (closingsList.isNotEmpty()) database.dailyClosingDao().insertClosings(closingsList)
+                if (writeOffsList.isNotEmpty()) writeOffsList.forEach { database.debtWriteOffDao().insert(it) }
+                if (partnersList.isNotEmpty()) partnersList.forEach { database.businessPartnerDao().insert(it) }
+                if (overridesList.isNotEmpty()) overridesList.forEach { database.storePriceOverrideDao().save(it) }
+                if (auditList.isNotEmpty()) auditList.forEach { database.auditEventDao().insert(it) }
                 if (txList.isNotEmpty()) database.transactionDao().insertTransactions(txList)
                 if (itemsList.isNotEmpty()) database.transactionDao().insertTransactionItems(itemsList)
             }

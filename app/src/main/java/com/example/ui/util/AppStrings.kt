@@ -5,12 +5,14 @@ import java.util.Locale
 
 interface AppStrings {
     // Navigation
+    val navDashboard: String
     val navRoutes: String
     val navStores: String
     val navInventory: String
     val navAnalytics: String
     val navHistory: String
     val navSettings: String
+    val navMasterData: String
     val drawerSectionOperations: String
     val drawerSectionReports: String
     val drawerSectionSystem: String
@@ -66,6 +68,14 @@ interface AppStrings {
     val emptyStoresFilter: String
     val emptyStoresFilterDesc: String
     val selectRouteRequired: String
+    val storeLifecycleLabel: String
+    val storeActive: String
+    val storeTemporarilyClosed: String
+    val storeBlacklisted: String
+    val creditLimitLabel: String
+    val creditLimitPlaceholder: String
+    val remainingCreditLabel: String
+    val debtAgeLabel: String
 
     // Common / Global
     val btnCancel: String
@@ -329,12 +339,14 @@ interface AppStrings {
 
 object AppStringsEn : AppStrings {
     // Navigation
+    override val navDashboard = "Dashboard"
     override val navRoutes = "Routes"
     override val navStores = "All Stores"
     override val navInventory = "Cargo & Stock"
     override val navAnalytics = "Analytics"
     override val navHistory = "Receipts"
     override val navSettings = "Settings"
+    override val navMasterData = "Master Data"
     override val drawerSectionOperations = "Daily Operations"
     override val drawerSectionReports = "Reports & Analytics"
     override val drawerSectionSystem = "System & Preferences"
@@ -396,6 +408,14 @@ object AppStringsEn : AppStrings {
     override val emptyStoresFilter = "No stores found"
     override val emptyStoresFilterDesc = "Try adjusting your search keywords or route filter."
     override val selectRouteRequired = "Please select a route for this store"
+    override val storeLifecycleLabel = "Store lifecycle"
+    override val storeActive = "Active"
+    override val storeTemporarilyClosed = "Temporarily closed"
+    override val storeBlacklisted = "Blacklisted"
+    override val creditLimitLabel = "Credit limit (Rp)"
+    override val creditLimitPlaceholder = "e.g. 500000"
+    override val remainingCreditLabel = "Remaining credit"
+    override val debtAgeLabel = "Debt age"
 
     // Common / Global
     override val btnCancel = "Cancel"
@@ -659,12 +679,14 @@ object AppStringsEn : AppStrings {
 
 object AppStringsId : AppStrings {
     // Navigation
+    override val navDashboard = "Dashboard"
     override val navRoutes = "Rute"
     override val navStores = "Daftar Warung"
     override val navInventory = "Muatan & Stok"
     override val navAnalytics = "Analitik"
     override val navHistory = "Riwayat Nota"
     override val navSettings = "Pengaturan"
+    override val navMasterData = "Master Data"
     override val drawerSectionOperations = "Operasional Harian"
     override val drawerSectionReports = "Laporan & Analitik"
     override val drawerSectionSystem = "Sistem & Preferensi"
@@ -726,6 +748,14 @@ object AppStringsId : AppStrings {
     override val emptyStoresFilter = "Tidak ada warung ditemukan"
     override val emptyStoresFilterDesc = "Coba ubah kata kunci pencarian atau filter rute."
     override val selectRouteRequired = "Silakan pilih rute untuk warung ini"
+    override val storeLifecycleLabel = "Status warung"
+    override val storeActive = "Aktif"
+    override val storeTemporarilyClosed = "Tutup sementara"
+    override val storeBlacklisted = "Blacklist"
+    override val creditLimitLabel = "Limit bon (Rp)"
+    override val creditLimitPlaceholder = "Contoh: 500000"
+    override val remainingCreditLabel = "Sisa limit"
+    override val debtAgeLabel = "Umur bon"
 
     // Common / Global
     override val btnCancel = "Batal"
