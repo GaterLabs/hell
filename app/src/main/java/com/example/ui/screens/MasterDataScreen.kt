@@ -134,6 +134,7 @@ private fun PartnerDialog(kind: String, onDismiss: () -> Unit, onSave: (Business
     )
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun OverrideDialog(stores: List<StoreEntity>, products: List<ProductEntity>, onDismiss: () -> Unit, onSave: (StorePriceOverrideEntity) -> Unit) {
     var storeId by remember { mutableStateOf(stores.firstOrNull()?.id ?: 0L) }

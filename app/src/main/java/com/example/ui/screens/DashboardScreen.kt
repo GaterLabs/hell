@@ -41,7 +41,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.example.NavigationItem
-import com.example.data.model.TransactionWithItems
 import com.example.ui.theme.AppThemeColors
 import com.example.ui.viewmodel.SalesViewModel
 import com.example.ui.util.LocalAppStrings
@@ -178,7 +177,7 @@ fun DashboardScreen(
                     )
                     DashboardMetricCard(
                         modifier = Modifier.weight(1f),
-                        icon = Icons.Default.AutoGraph,
+                        icon = Icons.Default.TrendingUp,
                         label = "Laba pribadi",
                         value = formatRupiah(privateProfit),
                         accent = MaterialTheme.colorScheme.tertiary
@@ -388,7 +387,7 @@ private fun DebtAgingCard(overdueStores: Int, totalDebt: Double) {
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             Icon(
-                Icons.Default.WarningAmber,
+                Icons.Default.Warning,
                 contentDescription = null,
                 tint = if (warning) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
             )
