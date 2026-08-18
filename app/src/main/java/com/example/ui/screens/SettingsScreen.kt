@@ -52,6 +52,7 @@ fun SettingsScreen(
     val pinEnabled by viewModel.pinEnabled.collectAsState()
     val gpsThreshold by viewModel.gpsAccuracyThreshold.collectAsState()
     val printerAddress by viewModel.printerAddress.collectAsState()
+    val text: (String, String) -> String = { id, en -> if (currentLang.code == "id") id else en }
     val auditEvents by viewModel.recentAuditEvents.collectAsState(initial = emptyList())
 
     var showResetVisitsDialog by remember { mutableStateOf(false) }
@@ -613,36 +614,36 @@ fun SettingsScreen(
             item {
                 Card(shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth()) {
                     Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Text("Keamanan & Perangkat", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
-                        Text(if (pinEnabled) "PIN aplikasi aktif" else "PIN aplikasi belum aktif", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(text("Keamanan & Perangkat", "Security & Devices"), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                        Text(if (pinEnabled) text("PIN aplikasi aktif", "App PIN is enabled") else text("PIN aplikasi belum aktif", "App PIN is not enabled"), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         OutlinedTextField(
                             value = pinText,
                             onValueChange = { pinText = it.filter(Char::isDigit).take(6) },
-                            label = { Text("PIN baru (4-6 digit)") },
+                            label = { Text(text("PIN baru (4-6 digit)", "New PIN (4-6 digits)")) },
                             singleLine = true,
                             modifier = Modifier.fillMaxWidth()
                         )
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Button(onClick = { viewModel.setSecurityPin(pinText); pinText = "" }, enabled = pinText.length >= 4) { Text(if (pinEnabled) "Ubah PIN" else "Aktifkan PIN") }
-                            if (pinEnabled) OutlinedButton(onClick = { viewModel.setSecurityPin("") }) { Text("Nonaktifkan") }
+                            Button(onClick = { viewModel.setSecurityPin(pinText); pinText = "" }, enabled = pinText.length >= 4) { Text(if (pinEnabled) text("Ubah PIN", "Change PIN") else text("Aktifkan PIN", "Enable PIN")) }
+                            if (pinEnabled) OutlinedButton(onClick = { viewModel.setSecurityPin("") }) { Text(text("Nonaktifkan", "Disable")) }
                         }
                         OutlinedTextField(
                             value = gpsText,
                             onValueChange = { gpsText = it.filter(Char::isDigit).take(3) },
-                            label = { Text("Batas akurasi GPS (meter)") },
+                            label = { Text(text("Batas akurasi GPS (meter)", "GPS accuracy limit (meters)")) },
                             singleLine = true,
                             modifier = Modifier.fillMaxWidth()
                         )
-                        OutlinedButton(onClick = { viewModel.setGpsAccuracyThreshold(gpsText.toIntOrNull() ?: gpsThreshold) }) { Text("Simpan batas GPS") }
+                        OutlinedButton(onClick = { viewModel.setGpsAccuracyThreshold(gpsText.toIntOrNull() ?: gpsThreshold) }) { Text(text("Simpan batas GPS", "Save GPS limit")) }
                         OutlinedTextField(
                             value = printerText,
                             onValueChange = { printerText = it },
-                            label = { Text("Alamat MAC printer Bluetooth") },
+                            label = { Text(text("Alamat MAC printer Bluetooth", "Bluetooth printer MAC address")) },
                             placeholder = { Text("AA:BB:CC:DD:EE:FF") },
                             singleLine = true,
                             modifier = Modifier.fillMaxWidth()
                         )
-                        OutlinedButton(onClick = { viewModel.setPrinterAddress(printerText) }) { Text("Simpan printer") }
+                        OutlinedButton(onClick = { viewModel.setPrinterAddress(printerText) }) { Text(text("Simpan printer", "Save printer")) }
                     }
                 }
             }
@@ -650,9 +651,9 @@ fun SettingsScreen(
             item {
                 Card(shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth()) {
                     Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Text("Audit Trail Terbaru", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                        Text(text("Audit Trail Terbaru", "Recent Audit Trail"), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
                         if (auditEvents.isEmpty()) {
-                            Text("Belum ada aktivitas tercatat", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(text("Belum ada aktivitas tercatat", "No activity recorded yet"), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         } else {
                             auditEvents.take(8).forEach { event ->
                                 Text("${event.eventType}: ${event.description}", style = MaterialTheme.typography.bodySmall)

@@ -46,6 +46,7 @@ import com.example.ui.theme.DebtBadge
 import com.example.ui.theme.ProfitBadge
 import com.example.ui.theme.SuccessGreen
 import com.example.ui.util.LocalAppStrings
+import com.example.ui.util.LocalAppLanguage
 import com.example.ui.util.LocationHelper
 import com.example.ui.viewmodel.SalesViewModel
 import kotlinx.coroutines.launch
@@ -70,6 +71,7 @@ fun StoresDirectoryScreen(
     modifier: Modifier = Modifier
 ) {
     val strings = LocalAppStrings.current
+    val language = LocalAppLanguage.current
     val context = LocalContext.current
 
     val allStores by viewModel.allStores.collectAsState()
@@ -597,15 +599,15 @@ fun StoresDirectoryScreen(
         AlertDialog(
             onDismissRequest = { storeToWriteOff = null },
             modifier = Modifier.fillMaxWidth(0.92f),
-            title = { Text("Write-off piutang") },
+            title = { Text(if (language.code == "id") "Hapus Buku Piutang" else "Debt Write-off") },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text("Piutang ${store.name}: ${SalesViewModel.formatRupiah(store.outstandingDebt)}")
-                    Text("Piutang dipindahkan ke laporan kerugian dan saldo warung menjadi nol. Histori transaksi tetap tersimpan.")
+                    Text("${if (language.code == "id") "Piutang" else "Debt"} ${store.name}: ${SalesViewModel.formatRupiah(store.outstandingDebt)}")
+                    Text(if (language.code == "id") "Saldo dipindahkan ke laporan kerugian dan histori transaksi tetap tersimpan." else "The balance moves to the loss report while transaction history remains intact.")
                     OutlinedTextField(
                         value = reason,
                         onValueChange = { reason = it },
-                        label = { Text("Alasan") },
+                        label = { Text(if (language.code == "id") "Alasan" else "Reason") },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
                     )
@@ -617,7 +619,7 @@ fun StoresDirectoryScreen(
                         viewModel.writeOffStoreDebt(store, reason) { storeToWriteOff = null }
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
-                ) { Text("Hapus Buku") }
+                ) { Text(if (language.code == "id") "Hapus Buku" else "Write Off") }
             },
             dismissButton = {
                 TextButton(onClick = { storeToWriteOff = null }) { Text(strings.btnCancel) }
@@ -1017,10 +1019,11 @@ fun MasterStoreCard(
 
 @Composable
 private fun StoreLifecycleBadge(status: String) {
+    val isIndonesian = LocalAppLanguage.current.code == "id"
     val (label, container, content) = when (status) {
-        "BLACKLISTED" -> Triple("BLACKLIST", MaterialTheme.colorScheme.errorContainer, MaterialTheme.colorScheme.onErrorContainer)
-        "TEMPORARILY_CLOSED" -> Triple("TUTUP SEMENTARA", MaterialTheme.colorScheme.tertiaryContainer, MaterialTheme.colorScheme.onTertiaryContainer)
-        else -> Triple("AKTIF", MaterialTheme.colorScheme.primaryContainer, MaterialTheme.colorScheme.onPrimaryContainer)
+        "BLACKLISTED" -> Triple(if (isIndonesian) "BLACKLIST" else "BLACKLISTED", MaterialTheme.colorScheme.errorContainer, MaterialTheme.colorScheme.onErrorContainer)
+        "TEMPORARILY_CLOSED" -> Triple(if (isIndonesian) "TUTUP SEMENTARA" else "TEMPORARILY CLOSED", MaterialTheme.colorScheme.tertiaryContainer, MaterialTheme.colorScheme.onTertiaryContainer)
+        else -> Triple(if (isIndonesian) "AKTIF" else "ACTIVE", MaterialTheme.colorScheme.primaryContainer, MaterialTheme.colorScheme.onPrimaryContainer)
     }
     Surface(
         shape = RoundedCornerShape(50),

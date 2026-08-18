@@ -45,6 +45,7 @@ import com.example.NavigationItem
 import com.example.ui.theme.AppThemeColors
 import com.example.ui.viewmodel.SalesViewModel
 import com.example.ui.util.LocalAppStrings
+import com.example.ui.util.LocalAppLanguage
 import java.text.NumberFormat
 import java.util.Locale
 
@@ -57,6 +58,8 @@ fun DashboardScreen(
     modifier: Modifier = Modifier
 ) {
     val strings = LocalAppStrings.current
+    val language = LocalAppLanguage.current
+    val text: (String, String) -> String = { id, en -> if (language.code == "id") id else en }
     val stores by viewModel.allStores.collectAsState()
     val routes by viewModel.allRoutes.collectAsState()
     val products by viewModel.allProducts.collectAsState()
@@ -187,7 +190,7 @@ fun DashboardScreen(
             }
 
             item {
-                DebtAgingCard(overdueStores, debt)
+                DebtAgingCard(overdueStores, debt, language.code == "id")
             }
 
             item {
@@ -253,7 +256,7 @@ fun DashboardScreen(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Column {
-                                Text("Muatan fresh hari ini", fontWeight = FontWeight.Bold)
+                                Text(text("Muatan fresh hari ini", "Fresh load today"), fontWeight = FontWeight.Bold)
                                 Text(
                                     text = "${loads.size} produk • $loadedPcs pcs",
                                     style = MaterialTheme.typography.bodySmall,
@@ -313,7 +316,7 @@ private fun DashboardHero(visited: Int, totalStores: Int, onVisitRoutes: () -> U
             FilterChip(
                 selected = false,
                 onClick = onVisitRoutes,
-                label = { Text("Mulai") }
+                label = { Text(text("Mulai", "Start")) }
             )
         }
     }
@@ -375,7 +378,8 @@ private fun DashboardSectionTitle(title: String, subtitle: String) {
 }
 
 @Composable
-private fun DebtAgingCard(overdueStores: Int, totalDebt: Double) {
+private fun DebtAgingCard(overdueStores: Int, totalDebt: Double, isIndonesian: Boolean) {
+    val text: (String, String) -> String = { id, en -> if (isIndonesian) id else en }
     val warning = overdueStores > 0
     Surface(
         modifier = Modifier.fillMaxWidth(),
@@ -393,10 +397,12 @@ private fun DebtAgingCard(overdueStores: Int, totalDebt: Double) {
                 tint = if (warning) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
             )
             Column {
-                Text("Aging piutang", fontWeight = FontWeight.ExtraBold)
+                Text(text("Aging piutang", "Debt aging"), fontWeight = FontWeight.ExtraBold)
                 Text(
-                    if (warning) "$overdueStores warung perlu ditagih (>21 hari)"
-                    else "Belum ada bon yang melewati 21 hari",
+                    if (warning) {
+                        if (isIndonesian) "$overdueStores outlet perlu ditagih (>21 hari)"
+                        else "$overdueStores outlet(s) need collection (>21 days)"
+                    } else text("Belum ada bon yang melewati 21 hari", "No debt is older than 21 days"),
                     style = MaterialTheme.typography.bodySmall
                 )
                 Text(
