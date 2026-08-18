@@ -977,6 +977,7 @@ fun VisitReconciliationSheet(
 
         AlertDialog(
             onDismissRequest = { showAddProductDialog = false },
+            modifier = Modifier.fillMaxWidth(0.92f),
             title = { Text(strings.selectProductTitle) },
             text = {
                 if (availableProducts.isEmpty()) {

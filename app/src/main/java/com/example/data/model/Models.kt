@@ -60,6 +60,7 @@ data class StoreEntity(
     val isVisitedToday: Boolean = false,
     val latitude: Double? = null,
     val longitude: Double? = null,
+    val photoUri: String? = null,
     val status: String = "ACTIVE",
     val creditLimit: Double = 500_000.0,
     val debtSince: Long? = null

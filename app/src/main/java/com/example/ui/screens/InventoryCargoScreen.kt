@@ -213,6 +213,7 @@ fun InventoryCargoScreen(
                 showAddProductDialog = false
                 productToEdit = null
             },
+            modifier = Modifier.fillMaxWidth(0.92f),
             title = { Text(if (isEditing) strings.editProductDialogTitle else strings.addProductDialogTitle) },
             text = {
                 LazyColumn(
@@ -357,6 +358,7 @@ fun InventoryCargoScreen(
 
         AlertDialog(
             onDismissRequest = { showAddLoadDialog = false },
+            modifier = Modifier.fillMaxWidth(0.92f),
             title = { Text(strings.addCargoDialogTitle) },
             text = {
                 Column(
@@ -869,6 +871,7 @@ private fun SortBsDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
+        modifier = Modifier.fillMaxWidth(0.92f),
         title = { Text("Sortir BS") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -965,6 +968,7 @@ private fun DailyClosingDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
+        modifier = Modifier.fillMaxWidth(0.92f),
         title = { Text("Closing & Setoran Pabrik") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {

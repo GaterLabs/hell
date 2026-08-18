@@ -4,6 +4,8 @@ import android.Manifest
 import android.content.Intent
 import android.location.Location
 import android.net.Uri
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -26,6 +28,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -46,6 +49,8 @@ import com.example.ui.util.LocalAppStrings
 import com.example.ui.util.LocationHelper
 import com.example.ui.viewmodel.SalesViewModel
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import java.util.Locale
 
 enum class StoreStatusFilter {
@@ -559,6 +564,7 @@ fun StoresDirectoryScreen(
         val store = storeToDelete!!
         AlertDialog(
             onDismissRequest = { storeToDelete = null },
+            modifier = Modifier.fillMaxWidth(0.92f),
             title = { Text(strings.deleteStoreDialogTitle) },
             text = {
                 Text(strings.deleteStoreConfirmMsg.replace("{name}", store.name))
@@ -590,6 +596,7 @@ fun StoresDirectoryScreen(
         var reason by remember(store.id) { mutableStateOf("Warung blacklist / bangkrut") }
         AlertDialog(
             onDismissRequest = { storeToWriteOff = null },
+            modifier = Modifier.fillMaxWidth(0.92f),
             title = { Text("Write-off piutang") },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -657,11 +664,14 @@ fun MasterStoreCard(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = store.name,
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold
-                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                        StorePhotoThumbnail(photoUri = store.photoUri, size = 48.dp)
+                        Column {
+                            Text(
+                                text = store.name,
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold
+                            )
                     if (route != null) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
@@ -688,6 +698,7 @@ fun MasterStoreCard(
                             )
                         }
                     }
+                        }
                 }
 
                 Column(
@@ -1025,6 +1036,49 @@ private fun StoreLifecycleBadge(status: String) {
     }
 }
 
+@Composable
+private fun StorePhotoThumbnail(photoUri: String?, size: androidx.compose.ui.unit.Dp) {
+    val context = LocalContext.current
+    val bitmap by produceState<Bitmap?>(initialValue = null, key1 = photoUri) {
+        value = if (photoUri.isNullOrBlank()) {
+            null
+        } else {
+            withContext(Dispatchers.IO) {
+                try {
+                    context.contentResolver.openInputStream(Uri.parse(photoUri)).use { stream ->
+                        BitmapFactory.decodeStream(stream)
+                    }
+                } catch (_: Exception) {
+                    null
+                }
+            }
+        }
+    }
+
+    Surface(
+        modifier = Modifier.size(size),
+        shape = RoundedCornerShape(10.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant,
+        tonalElevation = 1.dp
+    ) {
+        if (bitmap != null) {
+            androidx.compose.foundation.Image(
+                bitmap = bitmap!!.asImageBitmap(),
+                contentDescription = LocalAppStrings.current.storePhotoDescription,
+                contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                modifier = Modifier.fillMaxSize()
+            )
+        } else {
+            Icon(
+                Icons.Default.Storefront,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(10.dp).fillMaxSize()
+            )
+        }
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MasterStoreFormDialog(
@@ -1052,6 +1106,7 @@ fun MasterStoreFormDialog(
     var address by remember { mutableStateOf(initialStore?.address ?: "") }
     var latitude by remember { mutableStateOf(initialStore?.latitude) }
     var longitude by remember { mutableStateOf(initialStore?.longitude) }
+    var photoUri by remember { mutableStateOf(initialStore?.photoUri) }
     var notes by remember { mutableStateOf(initialStore?.notes ?: "") }
     var storeStatus by remember { mutableStateOf(initialStore?.status ?: "ACTIVE") }
     var creditLimitText by remember {
@@ -1059,6 +1114,20 @@ fun MasterStoreFormDialog(
     }
     var isAddressManuallyEdited by remember { mutableStateOf(false) }
     var isDetectingGps by remember { mutableStateOf(false) }
+
+    val photoPickerLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri: Uri? ->
+        if (uri != null) {
+            try {
+                context.contentResolver.takePersistableUriPermission(
+                    uri,
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION
+                )
+            } catch (_: Exception) { }
+            photoUri = uri.toString()
+        }
+    }
 
     val activeRoute = routes.find { it.id == selectedRouteId }
     val routeArea = activeRoute?.areaDescription?.ifBlank { activeRoute.name } ?: ""
@@ -1104,6 +1173,7 @@ fun MasterStoreFormDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
+        modifier = Modifier.fillMaxWidth(0.92f),
         title = {
             Text(
                 text = title,
@@ -1266,9 +1336,20 @@ fun MasterStoreFormDialog(
                     }
                 }
 
+                OutlinedButton(
+                    onClick = { photoPickerLauncher.launch(arrayOf("image/*")) },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(10.dp)
+                ) {
+                    Icon(Icons.Default.AddAPhoto, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(if (photoUri == null) strings.addStorePhoto else strings.replaceStorePhoto)
+                }
+                StorePhotoThumbnail(photoUri = photoUri, size = 92.dp)
+
                 if (latitude != null && longitude != null) {
                     Text(
-                        text = "Koordinat tersimpan: %.6f, %.6f".format(Locale.US, latitude ?: 0.0, longitude ?: 0.0),
+                        text = "${strings.storedCoordinatesLabel}: %.6f, %.6f".format(Locale.US, latitude ?: 0.0, longitude ?: 0.0),
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.primary,
                         modifier = Modifier.padding(horizontal = 4.dp)
@@ -1324,6 +1405,7 @@ fun MasterStoreFormDialog(
                             address = address.trim(),
                             latitude = latitude,
                             longitude = longitude,
+                            photoUri = photoUri,
                             notes = notes.trim(),
                             status = storeStatus,
                             creditLimit = creditLimitText.toDoubleOrNull()?.coerceAtLeast(0.0) ?: 500_000.0
@@ -1335,6 +1417,7 @@ fun MasterStoreFormDialog(
                             address = address.trim(),
                             latitude = latitude,
                             longitude = longitude,
+                            photoUri = photoUri,
                             notes = notes.trim(),
                             status = storeStatus,
                             creditLimit = creditLimitText.toDoubleOrNull()?.coerceAtLeast(0.0) ?: 500_000.0

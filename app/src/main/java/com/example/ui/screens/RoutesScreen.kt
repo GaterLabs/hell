@@ -791,6 +791,7 @@ fun RoutesScreen(
 
         AlertDialog(
             onDismissRequest = { showAddStoreDialog = false },
+            modifier = Modifier.fillMaxWidth(0.92f),
             title = {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
@@ -1078,6 +1079,7 @@ fun RoutesScreen(
 
         AlertDialog(
             onDismissRequest = { showAddRouteDialog = false },
+            modifier = Modifier.fillMaxWidth(0.92f),
             title = { Text(strings.addRouteDialogTitle) },
             text = {
                 Column(

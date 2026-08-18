@@ -690,6 +690,7 @@ fun SettingsScreen(
     if (showResetVisitsDialog) {
         AlertDialog(
             onDismissRequest = { showResetVisitsDialog = false },
+            modifier = Modifier.fillMaxWidth(0.92f),
             title = { Text(strings.resetVisitsDialogTitle) },
             text = {
                 Text(strings.resetVisitsDialogDesc)
@@ -719,6 +720,7 @@ fun SettingsScreen(
                 showImportConfirmDialog = false
                 selectedImportUri = null
             },
+            modifier = Modifier.fillMaxWidth(0.92f),
             title = { Text(strings.importBackupDialogTitle) },
             text = {
                 Text(strings.importBackupDialogDesc)
@@ -769,6 +771,7 @@ fun SettingsScreen(
     if (restoreResultMessage != null) {
         AlertDialog(
             onDismissRequest = { restoreResultMessage = null },
+            modifier = Modifier.fillMaxWidth(0.92f),
             title = { Text("Informasi Pemulihan Data") },
             text = {
                 Text(restoreResultMessage ?: "")

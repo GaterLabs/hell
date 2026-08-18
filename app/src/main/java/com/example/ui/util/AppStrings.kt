@@ -76,6 +76,10 @@ interface AppStrings {
     val creditLimitPlaceholder: String
     val remainingCreditLabel: String
     val debtAgeLabel: String
+    val addStorePhoto: String
+    val replaceStorePhoto: String
+    val storedCoordinatesLabel: String
+    val storePhotoDescription: String
 
     // Common / Global
     val btnCancel: String
@@ -416,6 +420,10 @@ object AppStringsEn : AppStrings {
     override val creditLimitPlaceholder = "e.g. 500000"
     override val remainingCreditLabel = "Remaining credit"
     override val debtAgeLabel = "Debt age"
+    override val addStorePhoto = "Add store photo"
+    override val replaceStorePhoto = "Replace store photo"
+    override val storedCoordinatesLabel = "Saved coordinates"
+    override val storePhotoDescription = "Store photo"
 
     // Common / Global
     override val btnCancel = "Cancel"
@@ -756,6 +764,10 @@ object AppStringsId : AppStrings {
     override val creditLimitPlaceholder = "Contoh: 500000"
     override val remainingCreditLabel = "Sisa limit"
     override val debtAgeLabel = "Umur bon"
+    override val addStorePhoto = "Tambah foto warung"
+    override val replaceStorePhoto = "Ganti foto warung"
+    override val storedCoordinatesLabel = "Koordinat tersimpan"
+    override val storePhotoDescription = "Foto warung"
 
     // Common / Global
     override val btnCancel = "Batal"

@@ -121,6 +121,7 @@ private fun PartnerDialog(kind: String, onDismiss: () -> Unit, onSave: (Business
     var bank by remember { mutableStateOf("") }
     AlertDialog(
         onDismissRequest = onDismiss,
+        modifier = Modifier.fillMaxWidth(0.92f),
         title = { Text(if (kind == "SUPPLIER") "Tambah Supplier" else if (kind == "SALESMAN") "Tambah Salesman" else "Tambah Rekening") },
         text = { Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedTextField(name, { name = it }, label = { Text("Nama") }, singleLine = true)
@@ -142,7 +143,7 @@ private fun OverrideDialog(stores: List<StoreEntity>, products: List<ProductEnti
     var price by remember { mutableStateOf("") }
     var expandedStore by remember { mutableStateOf(false) }
     var expandedProduct by remember { mutableStateOf(false) }
-    AlertDialog(onDismissRequest = onDismiss, title = { Text("Harga Khusus Warung") }, text = {
+    AlertDialog(modifier = Modifier.fillMaxWidth(0.92f), onDismissRequest = onDismiss, title = { Text("Harga Khusus Warung") }, text = {
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             ExposedDropdownMenuBox(expandedStore, { expandedStore = !expandedStore }) {
                 OutlinedTextField(value = stores.find { it.id == storeId }?.name ?: "Pilih warung", onValueChange = {}, readOnly = true, label = { Text("Warung") }, modifier = Modifier.menuAnchor().fillMaxWidth())

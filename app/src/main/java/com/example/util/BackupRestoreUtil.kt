@@ -95,6 +95,7 @@ object BackupRestoreUtil {
             obj.put("isVisitedToday", s.isVisitedToday)
             if (s.latitude != null) obj.put("latitude", s.latitude)
             if (s.longitude != null) obj.put("longitude", s.longitude)
+            if (s.photoUri != null) obj.put("photoUri", s.photoUri)
             obj.put("status", s.status)
             obj.put("creditLimit", s.creditLimit)
             obj.put("debtSince", s.debtSince ?: JSONObject.NULL)
@@ -408,6 +409,7 @@ object BackupRestoreUtil {
                         isVisitedToday = obj.optBoolean("isVisitedToday", false),
                         latitude = if (obj.has("latitude")) obj.optDouble("latitude") else null,
                         longitude = if (obj.has("longitude")) obj.optDouble("longitude") else null,
+                        photoUri = if (obj.isNull("photoUri")) null else obj.optString("photoUri", "").ifBlank { null },
                         status = obj.optString("status", "ACTIVE"),
                         creditLimit = obj.optDouble("creditLimit", 500_000.0),
                         debtSince = if (obj.isNull("debtSince")) null else obj.optLong("debtSince")
