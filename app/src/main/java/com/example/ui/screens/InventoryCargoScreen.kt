@@ -32,6 +32,8 @@ import com.example.ui.components.NumberStepper
 import com.example.ui.components.StatCard
 import com.example.ui.theme.AppThemeColors
 import com.example.ui.util.LocalAppStrings
+import com.example.ui.util.LocalAppLanguage
+import com.example.ui.util.localizedLabel
 import com.example.ui.viewmodel.SalesViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -98,7 +100,7 @@ fun InventoryCargoScreen(
                         } else if (selectedTab == 0) {
                             Row {
                                 IconButton(onClick = { showClosingDialog = true }) {
-                                    Icon(Icons.Default.CheckCircle, contentDescription = "Closing harian")
+                                    Icon(Icons.Default.CheckCircle, contentDescription = localizedLabel(LocalAppLanguage.current, "Closing harian", "Daily closing"))
                                 }
                                 IconButton(onClick = { showAddLoadDialog = true }) {
                                     Icon(Icons.Default.AddShoppingCart, contentDescription = strings.btnAddCargo)
@@ -302,7 +304,7 @@ fun InventoryCargoScreen(
                         OutlinedTextField(
                             value = categoryText,
                             onValueChange = { categoryText = it },
-                            label = { Text("Category") },
+                            label = { Text(localizedLabel(LocalAppLanguage.current, "Kategori", "Category")) },
                             placeholder = { Text("Snack / Beverage") },
                             modifier = Modifier.fillMaxWidth()
                         )
@@ -756,7 +758,7 @@ private fun InventoryBucketsCard(
         elevation = CardDefaults.elevatedCardElevation(defaultElevation = 1.dp)
     ) {
         Column(modifier = Modifier.padding(14.dp)) {
-            Text("Empat laci inventory", fontWeight = FontWeight.ExtraBold)
+            Text(localizedLabel(LocalAppLanguage.current, "Empat laci inventaris", "Four inventory buckets"), fontWeight = FontWeight.ExtraBold)
             Text(
                 "Kepemilikan stok terpisah dan mudah diaudit",
                 style = MaterialTheme.typography.bodySmall,
@@ -764,7 +766,7 @@ private fun InventoryBucketsCard(
             )
             if ((totals["BS_UNSORTED"] ?: 0) > 0) {
                 TextButton(onClick = onSortBsClick) {
-                    Text("Sortir BS")
+                    Text(localizedLabel(LocalAppLanguage.current, "Sortir BS", "Sort damaged stock"))
                 }
             }
             Spacer(modifier = Modifier.height(12.dp))
@@ -820,7 +822,7 @@ private fun ClosingStatusCard(closing: com.example.data.model.DailyClosingEntity
         elevation = CardDefaults.elevatedCardElevation(defaultElevation = 1.dp)
     ) {
         Column(modifier = Modifier.padding(14.dp)) {
-            Text("Closing harian", fontWeight = FontWeight.ExtraBold)
+            Text(localizedLabel(LocalAppLanguage.current, "Closing harian", "Daily closing"), fontWeight = FontWeight.ExtraBold)
             if (closing == null) {
                 Text(
                     "Belum ditutup. Pastikan sisa fresh dan kas sudah dihitung.",
@@ -872,7 +874,7 @@ private fun SortBsDialog(
     AlertDialog(
         onDismissRequest = onDismiss,
         modifier = Modifier.fillMaxWidth(0.92f),
-        title = { Text("Sortir BS") },
+        title = { Text(localizedLabel(LocalAppLanguage.current, "Sortir BS", "Sort damaged stock")) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(
@@ -881,9 +883,9 @@ private fun SortBsDialog(
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 if (balances.isEmpty()) {
-                    Text("Belum ada BS yang bisa disortir.")
+                    Text(localizedLabel(LocalAppLanguage.current, "Belum ada BS yang bisa disortir.", "No damaged stock is ready to sort."))
                 } else {
-                    Text("Produk", fontWeight = FontWeight.Bold)
+                    Text(localizedLabel(LocalAppLanguage.current, "Produk", "Product"), fontWeight = FontWeight.Bold)
                     balances.forEach { balance ->
                         val product = products.firstOrNull { it.id == balance.productId }
                         FilterChip(
@@ -894,7 +896,7 @@ private fun SortBsDialog(
                                 damagedText = ""
                             },
                             label = {
-                                Text("${product?.name ?: "Produk #${balance.productId}"} • ${balance.totalPcs} pcs")
+                                Text("${product?.name ?: "${localizedLabel(LocalAppLanguage.current, "Produk", "Product")} #${balance.productId}"} • ${balance.totalPcs} pcs")
                             },
                             modifier = Modifier.fillMaxWidth()
                         )
@@ -907,7 +909,7 @@ private fun SortBsDialog(
                     OutlinedTextField(
                         value = goodText,
                         onValueChange = { goodText = it.filter(Char::isDigit) },
-                        label = { Text("BS bagus / repack") },
+                        label = { Text(localizedLabel(LocalAppLanguage.current, "BS bagus / repack", "Good stock / repack")) },
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
@@ -915,7 +917,7 @@ private fun SortBsDialog(
                     OutlinedTextField(
                         value = damagedText,
                         onValueChange = { damagedText = it.filter(Char::isDigit) },
-                        label = { Text("BS rusak / write-off") },
+                        label = { Text(localizedLabel(LocalAppLanguage.current, "BS rusak / write-off", "Damaged stock / write-off")) },
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
@@ -937,11 +939,11 @@ private fun SortBsDialog(
                     }
                 }
             ) {
-                Text("Simpan")
+                Text(localizedLabel(LocalAppLanguage.current, "Simpan", "Save"))
             }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Batal") }
+            TextButton(onClick = onDismiss) { Text(localizedLabel(LocalAppLanguage.current, "Batal", "Cancel")) }
         }
     )
 }
@@ -969,7 +971,7 @@ private fun DailyClosingDialog(
     AlertDialog(
         onDismissRequest = onDismiss,
         modifier = Modifier.fillMaxWidth(0.92f),
-        title = { Text("Closing & Setoran Pabrik") },
+        title = { Text(localizedLabel(LocalAppLanguage.current, "Closing & Setoran Pabrik", "Daily Closing & Factory Settlement")) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 existingClosing?.let { closing ->
@@ -991,7 +993,7 @@ private fun DailyClosingDialog(
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 if (loads.isEmpty()) {
-                    Text("Belum ada muatan hari ini.")
+                    Text(localizedLabel(LocalAppLanguage.current, "Belum ada muatan hari ini.", "No cargo load recorded today."))
                 } else {
                     loads.forEach { load ->
                         val product = products.firstOrNull { it.id == load.productId }
@@ -1001,7 +1003,7 @@ private fun DailyClosingDialog(
                                 remainingByLoad[load.id] = value.filter(Char::isDigit)
                             },
                             label = {
-                                Text("${product?.name ?: "Produk #${load.productId}"} • muat ${load.initialLoadedQty} box")
+                                Text("${product?.name ?: "Product #${load.productId}"} • ${localizedLabel(LocalAppLanguage.current, "muat", "loaded")} ${load.initialLoadedQty} box")
                             },
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                             singleLine = true,
@@ -1017,7 +1019,7 @@ private fun DailyClosingDialog(
                 OutlinedTextField(
                     value = cashText,
                     onValueChange = { cashText = it.filter { char -> char.isDigit() } },
-                    label = { Text("Kas terkumpul dari warung") },
+                    label = { Text(localizedLabel(LocalAppLanguage.current, "Kas terkumpul dari outlet", "Cash collected from outlets")) },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
@@ -1025,7 +1027,7 @@ private fun DailyClosingDialog(
                 OutlinedTextField(
                     value = notes,
                     onValueChange = { notes = it },
-                    label = { Text("Catatan") },
+                    label = { Text(localizedLabel(LocalAppLanguage.current, "Catatan", "Notes")) },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
@@ -1048,10 +1050,10 @@ private fun DailyClosingDialog(
                         notes
                     )
                 }
-            ) { Text("Simpan closing") }
+            ) { Text(localizedLabel(LocalAppLanguage.current, "Simpan closing", "Save closing")) }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Batal") }
+            TextButton(onClick = onDismiss) { Text(localizedLabel(LocalAppLanguage.current, "Batal", "Cancel")) }
         }
     )
 }

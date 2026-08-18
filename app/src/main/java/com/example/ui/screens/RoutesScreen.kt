@@ -48,6 +48,8 @@ import com.example.ui.components.StoreDistanceBadge
 import com.example.ui.components.StoreVisitAgingBadge
 import com.example.ui.theme.AppThemeColors
 import com.example.ui.util.LocalAppStrings
+import com.example.ui.util.LocalAppLanguage
+import com.example.ui.util.localizedLabel
 import com.example.ui.util.LocationHelper
 import com.example.ui.viewmodel.SalesViewModel
 import com.example.service.LocationTrackingService
@@ -621,7 +623,7 @@ fun RoutesScreen(
                         ) {
                             Icon(Icons.Default.Add, contentDescription = null)
                             Spacer(modifier = Modifier.width(8.dp))
-                            Text("Tambah Rute Pertama")
+                        Text(localizedLabel(LocalAppLanguage.current, "Tambah Rute Pertama", "Add First Route"))
                         }
                     }
                 }
@@ -935,7 +937,7 @@ fun RoutesScreen(
                                 }) {
                                     Icon(
                                         Icons.Default.AutoAwesome,
-                                        contentDescription = "Autofill Address",
+                                    contentDescription = localizedLabel(LocalAppLanguage.current, "Isi alamat otomatis", "Autofill address"),
                                         tint = MaterialTheme.colorScheme.primary
                                     )
                                 }
@@ -963,7 +965,7 @@ fun RoutesScreen(
                                         )
                                     }
                                 },
-                                label = { Text("📍 GPS Posisi", style = MaterialTheme.typography.labelSmall) }
+                                label = { Text("📍 ${localizedLabel(LocalAppLanguage.current, "Posisi GPS", "GPS position")}", style = MaterialTheme.typography.labelSmall) }
                             )
                             if (routeArea.isNotBlank()) {
                                 SuggestionChip(
@@ -971,7 +973,7 @@ fun RoutesScreen(
                                         newAddress = routeArea
                                         isAddressManuallyEdited = false
                                     },
-                                    label = { Text("📍 $routeArea", style = MaterialTheme.typography.labelSmall) }
+                                label = { Text("📍 $routeArea", style = MaterialTheme.typography.labelSmall) }
                                 )
                             }
                             if (newStoreName.isNotBlank() && routeArea.isNotBlank()) {
@@ -980,7 +982,7 @@ fun RoutesScreen(
                                         newAddress = "${newStoreName.trim()}, $routeArea"
                                         isAddressManuallyEdited = true
                                     },
-                                    label = { Text("🏪 ${newStoreName.trim()}, $routeArea", style = MaterialTheme.typography.labelSmall) }
+                                label = { Text("🏪 ${newStoreName.trim()}, $routeArea", style = MaterialTheme.typography.labelSmall) }
                                 )
                             }
                             SuggestionChip(
@@ -988,7 +990,7 @@ fun RoutesScreen(
                                     newAddress = "Jl. "
                                     isAddressManuallyEdited = true
                                 },
-                                label = { Text("🛣️ Jl. ...", style = MaterialTheme.typography.labelSmall) }
+                                label = { Text("🛣️ ${localizedLabel(LocalAppLanguage.current, "Jl. ...", "Street ...")}", style = MaterialTheme.typography.labelSmall) }
                             )
                         }
                     }

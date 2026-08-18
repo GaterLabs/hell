@@ -3,6 +3,9 @@ package com.example.ui.util
 import com.example.ui.viewmodel.SalesViewModel
 import java.util.Locale
 
+fun localizedLabel(language: AppLanguage, indonesian: String, english: String): String =
+    if (language.code == "id") indonesian else english
+
 interface AppStrings {
     // Navigation
     val navDashboard: String
