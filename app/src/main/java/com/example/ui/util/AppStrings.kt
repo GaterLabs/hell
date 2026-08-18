@@ -83,6 +83,8 @@ interface AppStrings {
     val replaceStorePhoto: String
     val storedCoordinatesLabel: String
     val storePhotoDescription: String
+    val takeStorePhoto: String
+    val chooseStorePhoto: String
 
     // Common / Global
     val btnCancel: String
@@ -427,6 +429,8 @@ object AppStringsEn : AppStrings {
     override val replaceStorePhoto = "Replace store photo"
     override val storedCoordinatesLabel = "Saved coordinates"
     override val storePhotoDescription = "Store photo"
+    override val takeStorePhoto = "Take photo"
+    override val chooseStorePhoto = "Choose from gallery"
 
     // Common / Global
     override val btnCancel = "Cancel"
@@ -771,6 +775,8 @@ object AppStringsId : AppStrings {
     override val replaceStorePhoto = "Ganti foto warung"
     override val storedCoordinatesLabel = "Koordinat tersimpan"
     override val storePhotoDescription = "Foto warung"
+    override val takeStorePhoto = "Ambil foto"
+    override val chooseStorePhoto = "Pilih dari galeri"
 
     // Common / Global
     override val btnCancel = "Batal"

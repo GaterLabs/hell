@@ -39,6 +39,7 @@ import com.example.data.model.RouteEntity
 import com.example.data.model.StoreEntity
 import com.example.data.model.VisitTransactionEntity
 import com.example.ui.components.ReceiptDialog
+import com.example.ui.components.InAppCameraDialog
 import com.example.ui.components.StatusBadge
 import com.example.ui.components.StoreDistanceBadge
 import com.example.ui.components.StoreVisitAgingBadge
@@ -1118,6 +1119,7 @@ fun MasterStoreFormDialog(
     }
     var isAddressManuallyEdited by remember { mutableStateOf(false) }
     var isDetectingGps by remember { mutableStateOf(false) }
+    var showInAppCamera by remember { mutableStateOf(false) }
 
     val photoPickerLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument()
@@ -1340,14 +1342,25 @@ fun MasterStoreFormDialog(
                     }
                 }
 
-                OutlinedButton(
-                    onClick = { photoPickerLauncher.launch(arrayOf("image/*")) },
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(10.dp)
-                ) {
-                    Icon(Icons.Default.AddAPhoto, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(if (photoUri == null) strings.addStorePhoto else strings.replaceStorePhoto)
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(
+                        onClick = { showInAppCamera = true },
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(10.dp)
+                    ) {
+                        Icon(Icons.Default.CameraAlt, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(strings.takeStorePhoto)
+                    }
+                    OutlinedButton(
+                        onClick = { photoPickerLauncher.launch(arrayOf("image/*")) },
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(10.dp)
+                    ) {
+                        Icon(Icons.Default.PhotoLibrary, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(strings.chooseStorePhoto)
+                    }
                 }
                 StorePhotoThumbnail(photoUri = photoUri, size = 92.dp)
 
@@ -1442,4 +1455,14 @@ fun MasterStoreFormDialog(
             }
         }
     )
+
+    if (showInAppCamera) {
+        InAppCameraDialog(
+            onDismiss = { showInAppCamera = false },
+            onPhotoCaptured = { uri ->
+                photoUri = uri.toString()
+                showInAppCamera = false
+            }
+        )
+    }
 }
