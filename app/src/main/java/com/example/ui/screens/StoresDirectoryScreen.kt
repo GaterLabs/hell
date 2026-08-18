@@ -701,6 +701,7 @@ fun MasterStoreCard(
                         }
                     }
                         }
+                    }
                 }
 
                 Column(

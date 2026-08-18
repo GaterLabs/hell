@@ -46,6 +46,7 @@ import com.example.ui.theme.AppThemeColors
 import com.example.ui.viewmodel.SalesViewModel
 import com.example.ui.util.LocalAppStrings
 import com.example.ui.util.LocalAppLanguage
+import com.example.ui.util.localizedLabel
 import java.text.NumberFormat
 import java.util.Locale
 
@@ -316,7 +317,7 @@ private fun DashboardHero(visited: Int, totalStores: Int, onVisitRoutes: () -> U
             FilterChip(
                 selected = false,
                 onClick = onVisitRoutes,
-                label = { Text(text("Mulai", "Start")) }
+                label = { Text(localizedLabel(LocalAppLanguage.current, "Mulai", "Start")) }
             )
         }
     }
