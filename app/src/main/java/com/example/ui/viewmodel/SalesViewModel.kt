@@ -413,10 +413,16 @@ class SalesViewModel(application: Application) : AndroidViewModel(application) {
         repository.getConsignmentsForStore(storeId)
 
     // Actions: Products
-    fun saveProduct(product: ProductEntity, onDone: () -> Unit = {}) {
+    fun saveProduct(product: ProductEntity, onDone: () -> Unit = {}, onError: (String) -> Unit = { message ->
+        android.widget.Toast.makeText(getApplication(), message, android.widget.Toast.LENGTH_LONG).show()
+    }) {
         viewModelScope.launch {
-            repository.saveProduct(product)
-            onDone()
+            try {
+                repository.saveProduct(product)
+                onDone()
+            } catch (error: Exception) {
+                onError(error.message ?: "Gagal menyimpan produk")
+            }
         }
     }
 
@@ -427,13 +433,19 @@ class SalesViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     // Actions: Routes
-    fun saveRoute(route: RouteEntity, onDone: () -> Unit = {}) {
+    fun saveRoute(route: RouteEntity, onDone: () -> Unit = {}, onError: (String) -> Unit = { message ->
+        android.widget.Toast.makeText(getApplication(), message, android.widget.Toast.LENGTH_LONG).show()
+    }) {
         viewModelScope.launch {
-            val id = repository.saveRoute(route)
-            if (selectedRouteId.value == null) {
-                selectedRouteId.value = id
+            try {
+                val id = repository.saveRoute(route)
+                if (selectedRouteId.value == null) {
+                    selectedRouteId.value = id
+                }
+                onDone()
+            } catch (error: Exception) {
+                onError(error.message ?: "Gagal menyimpan rute")
             }
-            onDone()
         }
     }
 
