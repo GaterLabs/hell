@@ -46,6 +46,7 @@ import com.example.ui.util.LocalAppStrings
 import com.example.ui.util.LocationHelper
 import com.example.ui.viewmodel.SalesViewModel
 import kotlinx.coroutines.launch
+import java.util.Locale
 
 enum class StoreStatusFilter {
     ALL,
@@ -80,6 +81,7 @@ fun StoresDirectoryScreen(
     var storeToDelete by remember { mutableStateOf<StoreEntity?>(null) }
     var storeToWriteOff by remember { mutableStateOf<StoreEntity?>(null) }
     var showAddStoreDialog by remember { mutableStateOf(false) }
+    var storeFormError by remember { mutableStateOf<String?>(null) }
     var lastCompletedTransaction by remember { mutableStateOf<VisitTransactionEntity?>(null) }
     var sortByNearestGps by remember { mutableStateOf(false) }
     var userLocation by remember { mutableStateOf<Location?>(null) }
@@ -184,7 +186,7 @@ fun StoresDirectoryScreen(
                     }
                 },
                 actions = {
-                    IconButton(onClick = { showAddStoreDialog = true }) {
+                IconButton(onClick = { storeFormError = null; showAddStoreDialog = true }) {
                         Icon(Icons.Default.AddBusiness, contentDescription = strings.addStoreDialogTitle)
                     }
                 },
@@ -195,7 +197,7 @@ fun StoresDirectoryScreen(
         },
         floatingActionButton = {
             ExtendedFloatingActionButton(
-                onClick = { showAddStoreDialog = true },
+                onClick = { storeFormError = null; showAddStoreDialog = true },
                 icon = { Icon(Icons.Default.Add, contentDescription = null) },
                 text = { Text(strings.addStoreDialogTitle) },
                 containerColor = MaterialTheme.colorScheme.primary,
@@ -526,10 +528,11 @@ fun StoresDirectoryScreen(
             routes = allRoutes,
             preselectedRouteId = selectedRouteFilterId,
             gpsAccuracyThreshold = viewModel.gpsAccuracyThreshold.value,
+            externalError = storeFormError,
             onDismiss = { showAddStoreDialog = false },
             onSave = { newStore ->
-                viewModel.saveStore(newStore)
-                showAddStoreDialog = false
+                storeFormError = null
+                viewModel.saveStore(newStore, onDone = { showAddStoreDialog = false }, onError = { storeFormError = it })
             }
         )
     }
@@ -542,10 +545,11 @@ fun StoresDirectoryScreen(
             routes = allRoutes,
             preselectedRouteId = storeToEdit?.routeId,
             gpsAccuracyThreshold = viewModel.gpsAccuracyThreshold.value,
+            externalError = storeFormError,
             onDismiss = { storeToEdit = null },
             onSave = { updatedStore ->
-                viewModel.saveStore(updatedStore)
-                storeToEdit = null
+                storeFormError = null
+                viewModel.saveStore(updatedStore, onDone = { storeToEdit = null }, onError = { storeFormError = it })
             }
         )
     }
@@ -1029,6 +1033,7 @@ fun MasterStoreFormDialog(
     routes: List<RouteEntity>,
     preselectedRouteId: Long?,
     gpsAccuracyThreshold: Int = 20,
+    externalError: String? = null,
     onDismiss: () -> Unit,
     onSave: (StoreEntity) -> Unit
 ) {
@@ -1065,16 +1070,15 @@ fun MasterStoreFormDialog(
             try {
                 val loc = LocationHelper.getCurrentLocation(context)
                 if (loc != null) {
-                    if (loc.hasAccuracy() && loc.accuracy > gpsAccuracyThreshold) {
-                        Toast.makeText(context, "Akurasi GPS ${loc.accuracy.toInt()}m, perlu <= ${gpsAccuracyThreshold}m", Toast.LENGTH_LONG).show()
-                        return@launch
-                    }
                     latitude = loc.latitude
                     longitude = loc.longitude
                     val addr = LocationHelper.getAddressFromLocation(context, loc, routeArea)
                     address = addr
                     isAddressManuallyEdited = true
-                    Toast.makeText(context, strings.gpsSuccess, Toast.LENGTH_SHORT).show()
+                    val accuracyWarning = if (loc.hasAccuracy() && loc.accuracy > gpsAccuracyThreshold) {
+                        " Koordinat tersimpan, tetapi akurasi ${loc.accuracy.toInt()}m di atas batas ${gpsAccuracyThreshold}m."
+                    } else ""
+                    Toast.makeText(context, strings.gpsSuccess + accuracyWarning, Toast.LENGTH_LONG).show()
                 } else {
                     Toast.makeText(context, strings.gpsFailed, Toast.LENGTH_LONG).show()
                 }
@@ -1262,7 +1266,29 @@ fun MasterStoreFormDialog(
                     }
                 }
 
+                if (latitude != null && longitude != null) {
+                    Text(
+                        text = "Koordinat tersimpan: %.6f, %.6f".format(Locale.US, latitude ?: 0.0, longitude ?: 0.0),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.padding(horizontal = 4.dp)
+                    )
+                }
+
                 // Address
+                externalError?.let { error ->
+                    Surface(
+                        color = MaterialTheme.colorScheme.errorContainer,
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(modifier = Modifier.padding(10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Icon(Icons.Default.ErrorOutline, contentDescription = null, tint = MaterialTheme.colorScheme.error)
+                            Text(error, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onErrorContainer)
+                        }
+                    }
+                }
+
                 OutlinedTextField(
                     value = address,
                     onValueChange = {

@@ -451,10 +451,14 @@ class SalesViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     // Actions: Stores
-    fun saveStore(store: StoreEntity, onDone: () -> Unit = {}) {
+    fun saveStore(store: StoreEntity, onDone: () -> Unit = {}, onError: (String) -> Unit = {}) {
         viewModelScope.launch {
-            repository.saveStore(store)
-            onDone()
+            try {
+                repository.saveStore(store)
+                onDone()
+            } catch (error: Exception) {
+                onError(error.message ?: "Gagal menyimpan warung")
+            }
         }
     }
 
